@@ -17,6 +17,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 const OCR_PRIMARY_MODEL = (process.env.GEMINI_OCR_MODEL || 'gemini-4-hydrogen').trim();
 const LITE_MODEL = (process.env.GEMINI_LITE_MODEL || 'gemini-3.5-flash-lite').trim();
 const SECONDARY_LITE_MODEL = 'gemini-3.1-flash-lite';
+const MAX_PDF_BYTES = 4 * 1024 * 1024; // 4 MB limit for server-side inline PDF conversion
 
 const RETRY_DELAY_MS = 2000;
 const RATE_LIMIT_MAX_REQUESTS = 30;
@@ -403,6 +404,83 @@ CRITICAL ANTI-HALLUCINATION & GROUNDING RULES:
   };
 }
 
+async function handlePdf(ai, body) {
+  const pdfData = body.pdfData || body.base64Data;
+  const fileName = String(body.fileName || '').trim();
+  const language = body.language === 'vi' ? 'vi' : 'en';
+
+  if (!pdfData || typeof pdfData !== 'string') {
+    const err = new Error('Missing base64 pdfData payload.');
+    err.httpStatus = 400;
+    throw err;
+  }
+
+  const byteSize = Buffer.byteLength(pdfData, 'base64');
+  if (byteSize > MAX_PDF_BYTES) {
+    const err = new Error('PDF exceeds the 4MB server-side limit. Use local extraction fallback.');
+    err.httpStatus = 413;
+    throw err;
+  }
+
+  const langHint =
+    language === 'vi'
+      ? 'Preserve the original language of the PDF (Vietnamese or English) faithfully.'
+      : 'Preserve the original language of the PDF faithfully.';
+
+  const systemInstruction = `You are a precision academic PDF-to-Markdown and scientific typesetting engine.
+Extract and convert the ENTIRE content of the attached PDF document into clean, well-structured Markdown with KaTeX-compatible LaTeX math and chemical equations.
+
+Strict Conversion Rules:
+1. Convert every page faithfully — do NOT summarize, skip questions, or omit sections.
+2. Preserve structural hierarchy using Markdown headings (#, ##, ###), bullet/numbered lists, bold key terms, and GitHub-Flavored Markdown tables.
+3. Preserve all exercise, problem, and multiple-choice question numbering verbatim (e.g., "1.", "Câu 1:", "a)", "A.", "B.", "C.", "D.").
+4. Convert ALL inline mathematical, physical, and chemical symbols/formulas into valid inline KaTeX wrapped in single dollar signs: $...$ (e.g., $\\text{H}_2\\text{SO}_4$, $\\text{Fe}^{3+}$, $\\Delta G = \\Delta H - T\\Delta S$).
+5. Convert ALL standalone or multi-line equations into display KaTeX wrapped in double dollar signs on their own lines:
+$$
+...
+$$
+6. Return raw Markdown directly — do NOT wrap the entire output in triple-backtick markdown fences.
+7. Do NOT invent facts outside the PDF. ${langHint}`;
+
+  const response = await generateWithRetryAndFallback(
+    ai,
+    [OCR_PRIMARY_MODEL, LITE_MODEL, SECONDARY_LITE_MODEL],
+    {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: 'Convert this entire PDF document into clean, well-structured Markdown with valid inline ($...$) and block ($$...$$) KaTeX math/chemistry formulas, preserving all tables and question numbering.',
+            },
+            {
+              inlineData: {
+                mimeType: 'application/pdf',
+                data: pdfData,
+              },
+            },
+          ],
+        },
+      ],
+      config: {
+        systemInstruction,
+      },
+    }
+  );
+
+  let markdown = extractTextFromResponse(response);
+  markdown = markdown.replace(/^```(?:markdown|md)?\s*\n/i, '').replace(/\n```\s*$/i, '').trim();
+
+  const headingMatch = markdown.match(/^#{1,2}\s+(.+)$/m);
+  const cleanFileTitle = fileName.replace(/\.pdf$/i, '').trim();
+  const suggestedTitle =
+    (headingMatch ? headingMatch[1].replace(/[*_`]/g, '').trim().slice(0, 80) : '') ||
+    cleanFileTitle ||
+    (language === 'vi' ? 'Tài liệu PDF' : 'Imported PDF');
+
+  return { markdown, suggestedTitle };
+}
+
 export default async function handler(req, res) {
   const apiKey = (process.env.GEMINI_API_KEY || '').trim();
 
@@ -452,9 +530,9 @@ export default async function handler(req, res) {
   }
 
   const action = body?.action;
-  if (!['ocr', 'flashcards', 'quiz'].includes(action)) {
+  if (!['ocr', 'pdf', 'flashcards', 'quiz'].includes(action)) {
     return res.status(400).json({
-      error: 'Invalid or missing action. Expected "ocr", "flashcards", or "quiz".',
+      error: 'Invalid or missing action. Expected "ocr", "pdf", "flashcards", or "quiz".',
     });
   }
 
@@ -463,6 +541,10 @@ export default async function handler(req, res) {
 
     if (action === 'ocr') {
       const result = await handleOcr(ai, body);
+      return res.status(200).json(result);
+    }
+    if (action === 'pdf') {
+      const result = await handlePdf(ai, body);
       return res.status(200).json(result);
     }
     if (action === 'flashcards') {

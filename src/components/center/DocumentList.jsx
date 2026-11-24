@@ -29,7 +29,11 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { fileToBase64, scanA4Document } from '../../services/geminiService';
-import { convertDocxFileToMarkdown, importGoogleDoc } from '../../services/importService';
+import {
+  convertDocxFileToMarkdown,
+  importGoogleDoc,
+  importPdfFile,
+} from '../../services/importService';
 
 const MAX_TAGS = 3;
 
@@ -91,6 +95,12 @@ export default function DocumentList({
   const [autoSanitizeKatex, setAutoSanitizeKatex] = useState(true);
   const [isImportingGdoc, setIsImportingGdoc] = useState(false);
   const [gdocError, setGdocError] = useState('');
+
+  // PDF / File Upload & Drag-and-Drop state
+  const [pdfStatusMode, setPdfStatusMode] = useState(null); // null | 'ai' | 'local'
+  const [isDraggingOverList, setIsDraggingOverList] = useState(false);
+  const [dragTargetFolderId, setDragTargetFolderId] = useState(null);
+  const pendingUploadFolderIdsRef = useRef([]);
 
   const uploadInputRef = useRef(null);
   const scanInputRef = useRef(null);
@@ -176,17 +186,50 @@ export default function DocumentList({
     setDraft('');
   };
 
-  // Plain text, Markdown, or Word (.docx) upload
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
+  // Unified processor for uploaded or dropped files (.pdf, .docx, .md, .txt)
+  const processUploadedFile = async (file, targetFolderIds = []) => {
     if (!file) return;
 
     const now = Date.now();
+    const resolvedFolders = Array.isArray(targetFolderIds) ? [...targetFolderIds] : [];
+    const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
     const isDocx =
       /\.docx$/i.test(file.name) ||
       file.type ===
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+    if (isPdf) {
+      setPdfStatusMode('ai');
+      try {
+        const { title, content, method } = await importPdfFile(file, {
+          language: lang,
+          onProgress: (mode) => setPdfStatusMode(mode),
+        });
+        const newDoc = {
+          id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
+          title,
+          tags: ['PDF'],
+          folderIds: resolvedFolders,
+          createdAt: now,
+          updatedAt: now,
+          content,
+        };
+        onCreateDocument(newDoc, true);
+        onNotify(
+          method === 'gemini' ? t.pdfImportSuccessAi : t.pdfImportSuccessLocal,
+          'success'
+        );
+      } catch (err) {
+        if (err.code === 'MISSING_API_KEY') {
+          onNotify(t.missingApiKeyError, 'error');
+        } else {
+          onNotify(err?.message || t.pdfImportError, 'error');
+        }
+      } finally {
+        setPdfStatusMode(null);
+      }
+      return;
+    }
 
     if (isDocx) {
       try {
@@ -197,7 +240,7 @@ export default function DocumentList({
           id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
           title,
           tags: ['DOCX'],
-          folderIds: [],
+          folderIds: resolvedFolders,
           createdAt: now,
           updatedAt: now,
           content,
@@ -220,12 +263,55 @@ export default function DocumentList({
       id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
       title: baseName,
       tags: [isPlainText ? 'Text' : 'Markdown'],
-      folderIds: [],
+      folderIds: resolvedFolders,
       createdAt: now,
       updatedAt: now,
       content: normalizedContent,
     };
     onCreateDocument(newDoc, true);
+  };
+
+  // Plain text, Markdown, Word (.docx), or PDF upload input handler
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const targetFolders = pendingUploadFolderIdsRef.current;
+    pendingUploadFolderIdsRef.current = [];
+    if (!file) return;
+    await processUploadedFile(file, targetFolders);
+  };
+
+  const triggerUploadIntoFolders = (folderIds = []) => {
+    pendingUploadFolderIdsRef.current = folderIds;
+    uploadInputRef.current?.click();
+  };
+
+  // Workspace Drag-and-Drop handlers for .pdf / .docx / .md / .txt
+  const handleWorkspaceDragOver = (e) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDraggingOverList) setIsDraggingOverList(true);
+  };
+
+  const handleWorkspaceDragLeave = (e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setIsDraggingOverList(false);
+      setDragTargetFolderId(null);
+    }
+  };
+
+  const handleWorkspaceDrop = async (e, folderId = null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOverList(false);
+    setDragTargetFolderId(null);
+
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    // Save into dropped folder, or into currently expanded folders if user dropped on main canvas
+    const targetFolders = folderId ? [folderId] : [];
+    await processUploadedFile(file, targetFolders);
   };
 
   // Google Docs Import Handlers
@@ -540,7 +626,24 @@ export default function DocumentList({
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-[#FFFFFF] dark:bg-[#191919]">
+    <div
+      onDragOver={handleWorkspaceDragOver}
+      onDragLeave={handleWorkspaceDragLeave}
+      onDrop={(e) => handleWorkspaceDrop(e, null)}
+      className="relative flex flex-col h-full min-h-0 bg-[#FFFFFF] dark:bg-[#191919]"
+    >
+      {/* Drag-and-Drop Overlay */}
+      {isDraggingOverList && !dragTargetFolderId && (
+        <div className="pointer-events-none absolute inset-3 z-30 rounded-2xl border-2 border-dashed border-indigo-500 bg-indigo-500/10 backdrop-blur-[1px] flex flex-col items-center justify-center text-center p-6">
+          <Upload className="w-10 h-10 text-indigo-600 dark:text-indigo-400 mb-2" />
+          <p className="text-[16px] font-semibold text-indigo-700 dark:text-indigo-300">
+            {t.dropFilesOverlayTitle}
+          </p>
+          <p className="text-[13px] text-[#555552] dark:text-[#C5C4C0] mt-1">
+            {t.dropFilesOverlayHint}
+          </p>
+        </div>
+      )}
       {/* Top Workspace Header & Actions */}
       <div className="px-5 sm:px-8 pt-5 pb-3.5 border-b border-[#E5E5E3] dark:border-[#2F2F2F] shrink-0">
         <div className="max-w-5xl mx-auto space-y-3">
@@ -585,20 +688,25 @@ export default function DocumentList({
                 <span>{t.scanA4}</span>
               </button>
 
-              {/* Upload .md / .txt / .docx */}
+              {/* Upload .md / .txt / .docx / .pdf */}
               <button
                 type="button"
-                onClick={() => uploadInputRef.current?.click()}
-                title=".md, .txt, .docx"
-                className="min-h-[38px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#202020] hover:bg-[#F1F1EF] dark:hover:bg-[#262626] text-[#2F2F2F] dark:text-[#E8E8E6] text-[13px] font-medium inline-flex items-center gap-1.5 transition"
+                disabled={Boolean(pdfStatusMode)}
+                onClick={() => triggerUploadIntoFolders([])}
+                title=".md, .txt, .docx, .pdf"
+                className="min-h-[38px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#202020] hover:bg-[#F1F1EF] dark:hover:bg-[#262626] disabled:opacity-50 text-[#2F2F2F] dark:text-[#E8E8E6] text-[13px] font-medium inline-flex items-center gap-1.5 transition"
               >
-                <Upload className="w-4 h-4" />
+                {pdfStatusMode ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
                 <span>{t.uploadFile}</span>
               </button>
               <input
                 ref={uploadInputRef}
                 type="file"
-                accept=".md,.markdown,.txt,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                accept=".md,.markdown,.txt,.docx,.pdf,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={handleFileUpload}
                 className="hidden"
               />
@@ -614,6 +722,16 @@ export default function DocumentList({
               </button>
             </div>
           </div>
+
+          {/* Active PDF Conversion Progress Banner */}
+          {pdfStatusMode && (
+            <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-2.5 flex items-center gap-2.5 text-[13px] font-medium text-indigo-700 dark:text-indigo-300">
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              <span>
+                {pdfStatusMode === 'ai' ? t.pdfConvertingAi : t.pdfExtractingLocal}
+              </span>
+            </div>
+          )}
 
           {/* Search & Tag Filter Strip */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -673,7 +791,24 @@ export default function DocumentList({
                   return (
                     <div
                       key={folder.id}
-                      className="rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] overflow-hidden transition"
+                      onDragOver={(e) => {
+                        if (!e.dataTransfer?.types?.includes('Files')) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsDraggingOverList(true);
+                        if (dragTargetFolderId !== folder.id) setDragTargetFolderId(folder.id);
+                      }}
+                      onDragLeave={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget)) {
+                          if (dragTargetFolderId === folder.id) setDragTargetFolderId(null);
+                        }
+                      }}
+                      onDrop={(e) => handleWorkspaceDrop(e, folder.id)}
+                      className={`rounded-xl border overflow-hidden transition ${
+                        dragTargetFolderId === folder.id
+                          ? 'border-indigo-500 ring-2 ring-indigo-500/30 bg-indigo-500/5'
+                          : 'border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020]'
+                      }`}
                     >
                       {/* Folder Accordion Header Row */}
                       <div
@@ -727,6 +862,15 @@ export default function DocumentList({
                           className="flex items-center gap-0.5 opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition shrink-0"
                           onClick={(e) => e.stopPropagation()}
                         >
+                          <button
+                            type="button"
+                            disabled={Boolean(pdfStatusMode)}
+                            onClick={() => triggerUploadIntoFolders([folder.id])}
+                            title={t.uploadIntoFolder}
+                            className="p-1.5 rounded-lg text-[#787774] hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-[#E5E5E3]/70 dark:hover:bg-[#343434] disabled:opacity-40"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                          </button>
                           <button
                             type="button"
                             onClick={(e) => openEditFolder(folder, e)}

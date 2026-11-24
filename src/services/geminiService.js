@@ -147,6 +147,26 @@ export async function scanA4Document({ base64Data, mimeType, language = 'en' }) 
 }
 
 /**
+ * 1b. PDF Document to Markdown + KaTeX (for PDFs <= 4MB via Gemini inlineData)
+ */
+export async function convertPdfWithGemini({ base64Data, fileName = '', language = 'en' }) {
+  const data = await postGeminiAction({
+    action: 'pdf',
+    pdfData: base64Data,
+    fileName,
+    language,
+  });
+
+  return {
+    markdown: data?.markdown || '',
+    suggestedTitle:
+      data?.suggestedTitle ||
+      fileName.replace(/\.pdf$/i, '').trim() ||
+      (language === 'vi' ? 'Tài liệu PDF' : 'Imported PDF'),
+  };
+}
+
+/**
  * 2. AI Flashcard Extraction from Selected Document
  */
 export async function extractFlashcardsFromDocument({ document, count = 6, language = 'en' }) {
