@@ -14,6 +14,7 @@ export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 export const KEYS = {
   TASKS: 'tasks',
   DOCUMENTS: 'documents',
+  FOLDERS: 'folders',
   FLASHCARDS: 'flashcards',
   QUIZZES: 'quizzes',
   SETTINGS: 'settings',
@@ -26,6 +27,24 @@ const DEFAULT_SETTINGS = {
   density: 'comfortable', // 'comfortable' | 'compact'
 };
 
+export function getStarterFolders() {
+  const now = Date.now();
+  return [
+    {
+      id: 'folder_stem_core',
+      name: 'STEM Core Finals',
+      tags: ['Exam Prep', 'Semester 1'],
+      createdAt: now - 3 * 24 * 60 * 60 * 1000,
+    },
+    {
+      id: 'folder_formula_sheets',
+      name: 'Formula Reference Sheets',
+      tags: ['Math', 'Chemistry'],
+      createdAt: now - 2 * 24 * 60 * 60 * 1000,
+    },
+  ];
+}
+
 export function getStarterDocuments() {
   const now = Date.now();
   return [
@@ -33,6 +52,7 @@ export function getStarterDocuments() {
       id: 'doc_sample_calculus',
       title: 'Calculus II — Integration & Euler’s Identity',
       tags: ['Calculus', 'Math', 'Exam Prep'],
+      folderIds: ['folder_stem_core', 'folder_formula_sheets'],
       createdAt: now - 2 * 24 * 60 * 60 * 1000,
       updatedAt: now - 1 * 24 * 60 * 60 * 1000,
       content: `# Calculus II — Integration & Euler’s Identity
@@ -72,6 +92,7 @@ $$\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi}$$
       id: 'doc_sample_chemistry',
       title: 'Chemical Thermodynamics & Acid-Base Equilibrium',
       tags: ['Chemistry', 'Thermodynamics'],
+      folderIds: ['folder_stem_core'],
       createdAt: now - 1 * 24 * 60 * 60 * 1000,
       updatedAt: now - 6 * 60 * 60 * 1000,
       content: `# Chemical Thermodynamics & Acid-Base Equilibrium
@@ -286,9 +307,10 @@ export const storageService = {
   },
 
   async loadAllData() {
-    const [rawTasks, documents, flashcards, quizzes, settings, srsStats] = await Promise.all([
+    const [rawTasks, rawDocuments, folders, flashcards, quizzes, settings, srsStats] = await Promise.all([
       this.loadCollection(KEYS.TASKS, getStarterTasks),
       this.loadCollection(KEYS.DOCUMENTS, getStarterDocuments),
+      this.loadCollection(KEYS.FOLDERS, getStarterFolders),
       this.loadCollection(KEYS.FLASHCARDS, getStarterFlashcards),
       this.loadCollection(KEYS.QUIZZES, []),
       this.loadCollection(KEYS.SETTINGS, () => ({ ...DEFAULT_SETTINGS })),
@@ -300,9 +322,15 @@ export const storageService = {
       await this.saveCollection(KEYS.TASKS, cleanedTasks);
     }
 
+    const documents = (Array.isArray(rawDocuments) ? rawDocuments : []).map((doc) => ({
+      ...doc,
+      folderIds: Array.isArray(doc.folderIds) ? doc.folderIds : [],
+    }));
+
     return {
       tasks: cleanedTasks,
       documents,
+      folders: Array.isArray(folders) ? folders : [],
       flashcards,
       quizzes,
       settings: { ...DEFAULT_SETTINGS, ...settings },
@@ -313,7 +341,7 @@ export const storageService = {
   async exportBackup() {
     const data = await this.loadAllData();
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt: new Date().toISOString(),
       app: 'HyperDocs Study Hub',
       data,
@@ -327,7 +355,11 @@ export const storageService = {
     }
 
     const tasks = purgeExpiredCompletedTasks(Array.isArray(source.tasks) ? source.tasks : []);
-    const documents = Array.isArray(source.documents) ? source.documents : [];
+    const documents = (Array.isArray(source.documents) ? source.documents : []).map((doc) => ({
+      ...doc,
+      folderIds: Array.isArray(doc.folderIds) ? doc.folderIds : [],
+    }));
+    const folders = Array.isArray(source.folders) ? source.folders : [];
     const flashcards = Array.isArray(source.flashcards) ? source.flashcards : [];
     const quizzes = Array.isArray(source.quizzes) ? source.quizzes : [];
     const srsStats = source.srsStats || { lastSession: null, totalReviewedAllTime: 0 };
@@ -339,12 +371,13 @@ export const storageService = {
     await Promise.all([
       this.saveCollection(KEYS.TASKS, tasks),
       this.saveCollection(KEYS.DOCUMENTS, documents),
+      this.saveCollection(KEYS.FOLDERS, folders),
       this.saveCollection(KEYS.FLASHCARDS, flashcards),
       this.saveCollection(KEYS.QUIZZES, quizzes),
       this.saveCollection(KEYS.SRS_STATS, srsStats),
       this.saveSettings(settings),
     ]);
 
-    return { tasks, documents, flashcards, quizzes, settings, srsStats };
+    return { tasks, documents, folders, flashcards, quizzes, settings, srsStats };
   },
 };

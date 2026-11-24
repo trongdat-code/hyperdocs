@@ -48,7 +48,6 @@ export default function DocumentViewer({
     setIsEditing(initialEditMode);
   }, [initialEditMode, doc.id]);
 
-  // Escape exits fullscreen reader
   useEffect(() => {
     if (!isFullscreen) return;
     const onKey = (e) => {
@@ -123,10 +122,6 @@ export default function DocumentViewer({
     }
   };
 
-  const toggleFullscreen = () => {
-    setIsFullscreen((prev) => !prev);
-  };
-
   const formattedDate = new Date(doc.updatedAt || doc.createdAt || Date.now()).toLocaleDateString(
     lang === 'vi' ? 'vi-VN' : 'en-US',
     { year: 'numeric', month: 'short', day: 'numeric' }
@@ -134,13 +129,12 @@ export default function DocumentViewer({
 
   return (
     <div
-      className={`flex flex-col h-full min-h-0 bg-white dark:bg-[#09090B] ${
+      className={`flex flex-col h-full min-h-0 bg-[#FFFFFF] dark:bg-[#191919] ${
         isFullscreen ? 'fixed inset-0 z-40' : ''
       }`}
     >
-      {/* Top Reader Toolbar (hidden when printing) */}
-      <div className="no-print px-3 sm:px-5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur flex flex-wrap items-center justify-between gap-2 shrink-0">
-        {/* Left: Back button */}
+      {/* Top Reader Toolbar */}
+      <div className="no-print px-4 sm:px-6 py-2.5 border-b border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#FFFFFF]/95 dark:bg-[#191919]/95 backdrop-blur flex flex-wrap items-center justify-between gap-2 shrink-0">
         <button
           type="button"
           onClick={() => {
@@ -148,45 +142,44 @@ export default function DocumentViewer({
             setIsFullscreen(false);
             onBack();
           }}
-          className="min-h-[44px] px-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-semibold inline-flex items-center gap-1.5 transition"
+          className="min-h-[38px] px-3 rounded-lg hover:bg-[#F1F1EF] dark:hover:bg-[#262626] text-[#555552] dark:text-[#C5C4C0] text-[14px] font-medium inline-flex items-center gap-1.5 transition"
         >
           <ArrowLeft className="w-4 h-4" />
           <span className="hidden sm:inline">{t.backToList}</span>
         </button>
 
-        {/* Center/Right: Viewport & Export Controls */}
         <div className="flex flex-wrap items-center gap-1.5">
-          {/* Edit / Preview Toggle */}
+          {/* Edit / Read Toggle */}
           <button
             type="button"
             onClick={() => (isEditing ? handleSaveEdits() : setIsEditing(true))}
-            className={`min-h-[44px] px-3 rounded-xl text-sm font-semibold inline-flex items-center gap-1.5 border transition ${
+            className={`min-h-[36px] px-3 rounded-lg text-[13px] font-medium inline-flex items-center gap-1.5 border transition ${
               isEditing
                 ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
-                : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                : 'border-[#E5E5E3] dark:border-[#2F2F2F] hover:bg-[#F1F1EF] dark:hover:bg-[#262626]'
             }`}
           >
-            {isEditing ? <Eye className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+            {isEditing ? <Eye className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
             <span className="hidden md:inline">
               {isEditing ? t.previewMarkdown : t.editMarkdown}
             </span>
           </button>
 
           {/* Zoom Controls */}
-          <div className="inline-flex items-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 overflow-hidden">
+          <div className="inline-flex items-center rounded-lg border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] overflow-hidden">
             <button
               type="button"
               onClick={() => setZoom((z) => Math.max(75, z - 10))}
               title={t.zoomOut}
-              className="touch-target inline-flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-800 transition"
+              className="h-[36px] w-[36px] inline-flex items-center justify-center hover:bg-[#EBEBE8] dark:hover:bg-[#2F2F2F] transition"
             >
-              <ZoomOut className="w-4 h-4" />
+              <ZoomOut className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={() => setZoom(100)}
               title={t.resetZoom}
-              className="min-h-[44px] px-2 text-xs font-bold tabular-nums text-slate-700 dark:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-800 transition"
+              className="h-[36px] px-2 text-[12px] font-semibold tabular-nums hover:bg-[#EBEBE8] dark:hover:bg-[#2F2F2F] transition"
             >
               {zoom}%
             </button>
@@ -194,20 +187,24 @@ export default function DocumentViewer({
               type="button"
               onClick={() => setZoom((z) => Math.min(175, z + 10))}
               title={t.zoomIn}
-              className="touch-target inline-flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-800 transition"
+              className="h-[36px] w-[36px] inline-flex items-center justify-center hover:bg-[#EBEBE8] dark:hover:bg-[#2F2F2F] transition"
             >
-              <ZoomIn className="w-4 h-4" />
+              <ZoomIn className="w-3.5 h-3.5" />
             </button>
           </div>
 
           {/* Fullscreen Toggle */}
           <button
             type="button"
-            onClick={toggleFullscreen}
+            onClick={() => setIsFullscreen((prev) => !prev)}
             title={isFullscreen ? t.exitFullscreen : t.fullscreen}
-            className="touch-target inline-flex items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            className="h-[36px] w-[36px] inline-flex items-center justify-center rounded-lg border border-[#E5E5E3] dark:border-[#2F2F2F] hover:bg-[#F1F1EF] dark:hover:bg-[#262626] transition"
           >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            {isFullscreen ? (
+              <Minimize2 className="w-3.5 h-3.5" />
+            ) : (
+              <Maximize2 className="w-3.5 h-3.5" />
+            )}
           </button>
 
           {/* Share */}
@@ -215,10 +212,10 @@ export default function DocumentViewer({
             type="button"
             onClick={handleShare}
             title={t.shareDoc}
-            className="touch-target sm:px-3 inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-sm font-semibold transition"
+            className="h-[36px] px-3 inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#E5E5E3] dark:border-[#2F2F2F] hover:bg-[#F1F1EF] dark:hover:bg-[#262626] text-[13px] font-medium transition"
           >
-            <Share2 className="w-4 h-4" />
-            <span className="hidden xl:inline">{t.shareDoc}</span>
+            <Share2 className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">{t.shareDoc}</span>
           </button>
 
           {/* Export PDF / Print */}
@@ -226,50 +223,48 @@ export default function DocumentViewer({
             type="button"
             onClick={handleExportPdf}
             title={t.exportPdf}
-            className="min-h-[44px] px-3.5 inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-sm transition"
+            className="h-[36px] px-3.5 inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#2F2F2F] hover:bg-[#191919] dark:bg-[#E8E8E6] dark:hover:bg-white text-white dark:text-[#191919] text-[13px] font-semibold transition"
           >
-            <Printer className="w-4 h-4" />
+            <Printer className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">{t.exportPdf}</span>
           </button>
         </div>
       </div>
 
       {/* Document Body (Printable A4 container) */}
-      <div className="flex-1 overflow-y-auto px-4 sm:px-8 lg:px-10 py-6 min-h-0">
+      <div className="flex-1 overflow-y-auto px-5 sm:px-10 lg:px-14 py-7 min-h-0">
         <article
-          className="print-only-document mx-auto max-w-4xl transition-all duration-150"
-          style={{ fontSize: `${(17 * zoom) / 100}px` }}
+          className="print-only-document mx-auto max-w-3xl transition-all duration-150"
+          style={{ fontSize: `${(15 * zoom) / 100}px` }}
         >
-          {/* Metadata Header */}
-          <header className="mb-6 pb-4 border-b border-slate-200 dark:border-slate-800">
+          <header className="mb-6 pb-4 border-b border-[#E5E5E3] dark:border-[#2F2F2F]">
             {isEditing ? (
               <input
                 type="text"
                 value={draftTitle}
                 onChange={(e) => setDraftTitle(e.target.value)}
                 placeholder={t.docTitlePlaceholder}
-                className="w-full px-3 py-2 rounded-xl border border-indigo-400 bg-white dark:bg-slate-900 text-2xl font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 rounded-xl border border-indigo-400 bg-[#FFFFFF] dark:bg-[#202020] text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             ) : (
-              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#2F2F2F] dark:text-[#E8E8E6]">
                 {doc.title}
               </h1>
             )}
 
-            <div className="flex flex-wrap items-center gap-2 mt-3 text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex flex-wrap items-center gap-2 mt-3 text-[13px] text-[#787774] dark:text-[#9B9A97]">
               <span>
                 {t.updatedLabel}: {formattedDate}
               </span>
-              <span className="no-print">•</span>
+              <span className="no-print">·</span>
 
-              {/* Tag badges (max 3) */}
               <div className="flex flex-wrap items-center gap-1.5">
                 {(doc.tags || []).slice(0, MAX_TAGS).map((tag) => (
                   <span
                     key={tag}
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-semibold"
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#F1F1EF] dark:bg-[#262626] text-[#555552] dark:text-[#C5C4C0] font-medium text-[12px]"
                   >
-                    <Tag className="w-3 h-3" />
+                    <Tag className="w-3 h-3 text-indigo-500" />
                     {tag}
                     <button
                       type="button"
@@ -285,7 +280,7 @@ export default function DocumentViewer({
                   <button
                     type="button"
                     onClick={() => setTagInputOpen(true)}
-                    className="no-print inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-500 text-slate-500 hover:text-indigo-600 transition"
+                    className="no-print inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-dashed border-[#D3D3CF] dark:border-[#3A3A3A] hover:border-indigo-500 text-[#787774] hover:text-indigo-500 text-[12px] transition"
                   >
                     <Plus className="w-3 h-3" />
                     <span>{t.editTags}</span>
@@ -300,7 +295,7 @@ export default function DocumentViewer({
                       value={tagDraft}
                       onChange={(e) => setTagDraft(e.target.value)}
                       placeholder={t.addTagPlaceholder}
-                      className="w-32 px-2 py-0.5 rounded-md border border-indigo-400 bg-white dark:bg-slate-900 text-xs text-slate-900 dark:text-white focus:outline-none"
+                      className="w-32 px-2 py-0.5 rounded-md border border-indigo-400 bg-[#FFFFFF] dark:bg-[#202020] text-[12px] focus:outline-none"
                     />
                     <button
                       type="submit"
@@ -315,7 +310,7 @@ export default function DocumentViewer({
                         setTagInputOpen(false);
                         setTagDraft('');
                       }}
-                      className="p-1 rounded text-slate-400 hover:text-slate-600"
+                      className="p-1 rounded text-[#787774]"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -325,7 +320,6 @@ export default function DocumentViewer({
             </div>
           </header>
 
-          {/* Editor or Rendered Markdown + KaTeX */}
           {isEditing ? (
             <div className="space-y-3 no-print">
               <textarea
@@ -333,7 +327,7 @@ export default function DocumentViewer({
                 value={draftContent}
                 onChange={(e) => setDraftContent(e.target.value)}
                 placeholder={t.markdownPlaceholder}
-                className="w-full p-4 rounded-2xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 font-mono text-[15px] leading-relaxed text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full p-4 rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] font-mono text-[14px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <div className="flex justify-end gap-2">
                 <button
@@ -343,15 +337,15 @@ export default function DocumentViewer({
                     setDraftContent(doc.content || '');
                     setIsEditing(false);
                   }}
-                  className="min-h-[44px] px-4 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-medium inline-flex items-center gap-1.5"
+                  className="min-h-[40px] px-4 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] text-[14px] font-medium inline-flex items-center gap-1.5"
                 >
                   <RotateCcw className="w-4 h-4" />
                   <span>{t.cancel}</span>
                 </button>
                 <button
-                  type="button"
+                  type="submit"
                   onClick={handleSaveEdits}
-                  className="min-h-[44px] px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold inline-flex items-center gap-1.5"
+                  className="min-h-[40px] px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[14px] font-semibold inline-flex items-center gap-1.5"
                 >
                   <Check className="w-4 h-4" />
                   <span>{t.save}</span>
@@ -360,7 +354,7 @@ export default function DocumentViewer({
             </div>
           ) : (
             <div
-              className="study-markdown text-slate-800 dark:text-slate-100"
+              className="study-markdown text-[#2F2F2F] dark:text-[#E8E8E6]"
               style={{ fontSize: 'inherit' }}
             >
               <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>

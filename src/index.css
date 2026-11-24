@@ -8,7 +8,7 @@
   html,
   body {
     font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 17px;
+    font-size: 15px;
     line-height: 1.6;
     height: 100%;
     overflow: hidden;
@@ -21,7 +21,7 @@
   }
 }
 
-/* Custom sleek scrollbars */
+/* Subtle Notion-style scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -32,160 +32,171 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(148, 163, 184, 0.35);
+  background-color: rgba(120, 119, 116, 0.25);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(100, 116, 139, 0.6);
+  background-color: rgba(120, 119, 116, 0.45);
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background-color: rgba(71, 85, 105, 0.55);
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.26);
 }
 
 /* KaTeX responsive overflow wrappers */
 .katex-display {
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0.75rem 0.5rem;
-  margin: 1rem 0;
+  padding: 0.65rem 0.5rem;
+  margin: 0.85rem 0;
   max-width: 100%;
   -webkit-overflow-scrolling: touch;
 }
 
 .katex {
-  font-size: 1.05em;
+  font-size: 1.04em;
 }
 
-/* Markdown document typography (17px base scaled cleanly) */
+/* Notion-scale Markdown document typography (15px base, proportional headings) */
 .study-markdown {
-  font-size: 17px;
-  line-height: 1.75;
+  font-size: 15px;
+  line-height: 1.7;
   word-wrap: break-word;
 }
 
 .study-markdown h1 {
-  font-size: 1.75em;
+  font-size: 1.85em;
   font-weight: 700;
-  line-height: 1.3;
-  margin-top: 0.5em;
-  margin-bottom: 0.75em;
-  padding-bottom: 0.35em;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin-top: 0.4em;
+  margin-bottom: 0.65em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid #e5e5e3;
+}
+
+.dark .study-markdown h1 {
+  border-bottom-color: #2f2f2f;
 }
 
 .study-markdown h2 {
-  font-size: 1.4em;
-  font-weight: 700;
-  line-height: 1.35;
-  margin-top: 1.4em;
-  margin-bottom: 0.6em;
+  font-size: 1.42em;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  margin-top: 1.35em;
+  margin-bottom: 0.5em;
 }
 
 .study-markdown h3 {
-  font-size: 1.18em;
+  font-size: 1.16em;
   font-weight: 600;
-  line-height: 1.4;
-  margin-top: 1.2em;
-  margin-bottom: 0.45em;
+  line-height: 1.35;
+  margin-top: 1.1em;
+  margin-bottom: 0.4em;
 }
 
 .study-markdown p {
-  margin-top: 0.65em;
-  margin-bottom: 0.85em;
+  margin-top: 0.55em;
+  margin-bottom: 0.75em;
 }
 
 .study-markdown ul {
   list-style-type: disc;
-  padding-left: 1.5em;
-  margin: 0.75em 0;
+  padding-left: 1.45em;
+  margin: 0.65em 0;
 }
 
 .study-markdown ol {
   list-style-type: decimal;
-  padding-left: 1.5em;
-  margin: 0.75em 0;
+  padding-left: 1.45em;
+  margin: 0.65em 0;
 }
 
 .study-markdown li {
-  margin: 0.35em 0;
+  margin: 0.28em 0;
 }
 
 .study-markdown blockquote {
-  border-left: 4px solid #6366f1;
-  padding: 0.5em 1em;
-  margin: 1em 0;
-  background-color: rgba(99, 102, 241, 0.06);
-  border-radius: 0 0.5rem 0.5rem 0;
+  border-left: 3px solid #6366f1;
+  padding: 0.45em 0.95em;
+  margin: 0.9em 0;
+  background-color: #f7f7f5;
+  border-radius: 0 0.45rem 0.45rem 0;
 }
 
 .dark .study-markdown blockquote {
-  background-color: rgba(99, 102, 241, 0.12);
+  background-color: #262626;
 }
 
 .study-markdown code:not(pre code) {
-  background-color: rgba(148, 163, 184, 0.18);
-  padding: 0.15em 0.4em;
-  border-radius: 0.35rem;
-  font-size: 0.9em;
+  background-color: #f1f1ef;
+  padding: 0.14em 0.38em;
+  border-radius: 0.3rem;
+  font-size: 0.88em;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.dark .study-markdown code:not(pre code) {
+  background-color: #262626;
+}
+
 .study-markdown pre {
-  background-color: #0f172a;
-  color: #e2e8f0;
-  padding: 1rem 1.15rem;
-  border-radius: 0.65rem;
+  background-color: #202020;
+  color: #e8e8e6;
+  padding: 0.9rem 1.05rem;
+  border-radius: 0.55rem;
   overflow-x: auto;
-  margin: 1rem 0;
+  margin: 0.9rem 0;
   font-size: 0.88em;
+  border: 1px solid #2f2f2f;
 }
 
 .study-markdown table {
   width: 100%;
   border-collapse: collapse;
-  margin: 1rem 0;
+  margin: 0.9rem 0;
   display: block;
   overflow-x: auto;
 }
 
 .study-markdown th,
 .study-markdown td {
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  padding: 0.55rem 0.75rem;
+  border: 1px solid #e5e5e3;
+  padding: 0.5rem 0.75rem;
   text-align: left;
 }
 
+.dark .study-markdown th,
+.dark .study-markdown td {
+  border-color: #2f2f2f;
+}
+
 .study-markdown th {
-  background-color: rgba(148, 163, 184, 0.12);
+  background-color: #f7f7f5;
   font-weight: 600;
+}
+
+.dark .study-markdown th {
+  background-color: #262626;
 }
 
 .study-markdown hr {
   border: none;
-  border-top: 1px solid rgba(148, 163, 184, 0.3);
-  margin: 1.5rem 0;
+  border-top: 1px solid #e5e5e3;
+  margin: 1.35rem 0;
 }
 
-/* 3D Flashcard flip helpers */
-.perspective-1000 {
-  perspective: 1000px;
+.dark .study-markdown hr {
+  border-top-color: #2f2f2f;
 }
 
-.transform-style-3d {
-  transform-style: preserve-3d;
-}
-
-.backface-hidden {
-  backface-visibility: hidden;
-}
-
-.rotate-y-180 {
-  transform: rotateY(180deg);
-}
-
-/* Touch target enforcement helper */
+/* Touch target helper */
 .touch-target {
   min-height: 44px;
   min-width: 44px;
@@ -204,8 +215,8 @@
     height: auto !important;
     overflow: visible !important;
     background: #ffffff !important;
-    color: #0f172a !important;
-    font-size: 11.5pt !important;
+    color: #191919 !important;
+    font-size: 11pt !important;
   }
 
   .no-print {
@@ -224,19 +235,19 @@
     border: none !important;
     box-shadow: none !important;
     background: #ffffff !important;
-    color: #0f172a !important;
+    color: #191919 !important;
     transform: none !important;
     zoom: 1 !important;
   }
 
   .print-only-document * {
-    color: #0f172a !important;
-    border-color: #cbd5e1 !important;
+    color: #191919 !important;
+    border-color: #d4d4d2 !important;
   }
 
   .print-only-document pre {
-    background-color: #f8fafc !important;
-    border: 1px solid #cbd5e1 !important;
+    background-color: #f7f7f5 !important;
+    border: 1px solid #d4d4d2 !important;
     white-space: pre-wrap !important;
   }
 
