@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   SlidersHorizontal,
   Sun,
@@ -8,9 +8,9 @@ import {
   Download,
   Upload,
   ShieldCheck,
-  AlertCircle,
+  Server,
 } from 'lucide-react';
-import { isGeminiConfigured } from '../../services/geminiService';
+import { checkGeminiProxyStatus } from '../../services/geminiService';
 
 export default function SettingsPanel({
   settings,
@@ -20,7 +20,17 @@ export default function SettingsPanel({
   t,
 }) {
   const importRef = useRef(null);
-  const aiReady = isGeminiConfigured();
+  const [proxyStatus, setProxyStatus] = useState({ checked: false, reachable: false, configured: false });
+
+  useEffect(() => {
+    let active = true;
+    checkGeminiProxyStatus().then((status) => {
+      if (active) setProxyStatus({ checked: true, ...status });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
@@ -140,21 +150,21 @@ export default function SettingsPanel({
           </div>
         </div>
 
-        {/* Gemini Env Status Badge */}
+        {/* Server-Side AI Proxy Badge */}
         <div
           className={`rounded-xl border px-2.5 py-2 flex items-center gap-2 text-xs ${
-            aiReady
+            proxyStatus.configured
               ? 'border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300'
-              : 'border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-slate-600 dark:text-slate-300'
           }`}
         >
-          {aiReady ? (
-            <ShieldCheck className="w-4 h-4 shrink-0" />
+          {proxyStatus.configured ? (
+            <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
           ) : (
-            <AlertCircle className="w-4 h-4 shrink-0" />
+            <Server className="w-4 h-4 shrink-0 text-indigo-500" />
           )}
           <span className="leading-snug font-medium">
-            {aiReady ? t.geminiEnvConfigured : t.geminiEnvMissing}
+            {proxyStatus.configured ? t.geminiEnvConfigured : t.geminiEnvMissing}
           </span>
         </div>
 
