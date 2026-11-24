@@ -27,6 +27,32 @@ import {
   storageService,
 } from './services/storageService';
 import { getTranslator } from './i18n/translations';
+import { formatMMSS, PomodoroProvider, usePomodoro } from './context/PomodoroContext';
+
+function LivePomodoroBadge({ compact = false }) {
+  const { isRunning, timeLeft, mode } = usePomodoro();
+  if (!isRunning) return null;
+
+  const isBreak = mode === 'shortBreak' || mode === 'longBreak';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full font-semibold tabular-nums shrink-0 ${
+        compact ? 'px-2 py-0.5 text-[11px]' : 'px-2 py-0.5 text-[12px]'
+      } ${
+        isBreak
+          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+          : 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300'
+      }`}
+    >
+      <span
+        className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+          isBreak ? 'bg-emerald-500' : 'bg-indigo-500'
+        }`}
+      />
+      <span>{formatMMSS(timeLeft)}</span>
+    </span>
+  );
+}
 
 export default function App() {
   const [hydrated, setHydrated] = useState(false);
@@ -466,7 +492,8 @@ export default function App() {
                     : 'text-[#787774] dark:text-[#9B9A97]'
                 }`}
               />
-              <span className="truncate">{label}</span>
+              <span className="truncate flex-1">{label}</span>
+              {key === 'pomodoro' && <LivePomodoroBadge />}
             </button>
           );
         })}
@@ -491,36 +518,48 @@ export default function App() {
   );
 
   return (
-    <div className="h-[100dvh] w-full flex flex-col overflow-hidden bg-[#FFFFFF] dark:bg-[#191919] text-[15px] text-[#2F2F2F] dark:text-[#E8E8E6]">
-      {/* Mobile Top Bar (< 768px) */}
-      <header className="md:hidden no-print shrink-0 h-13 px-3 py-1.5 border-b border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => setMobileDrawerOpen(true)}
-          aria-label={t.openMenu}
-          className="touch-target inline-flex items-center justify-center rounded-lg text-[#555552] dark:text-[#C5C4C0] hover:bg-[#EBEBE8] dark:hover:bg-[#2C2C2C]"
-        >
-          <Menu className="w-5 h-5" />
-        </button>
+    <PomodoroProvider selectedTask={selectedTask}>
+      <div className="h-[100dvh] w-full flex flex-col overflow-hidden bg-[#FFFFFF] dark:bg-[#191919] text-[15px] text-[#2F2F2F] dark:text-[#E8E8E6]">
+        {/* Mobile Top Bar (< 768px) */}
+        <header className="md:hidden no-print shrink-0 h-13 px-3 py-1.5 border-b border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => setMobileDrawerOpen(true)}
+            aria-label={t.openMenu}
+            className="touch-target inline-flex items-center justify-center rounded-lg text-[#555552] dark:text-[#C5C4C0] hover:bg-[#EBEBE8] dark:hover:bg-[#2C2C2C]"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
 
-        <button
-          type="button"
-          onClick={() => handleNavigate('documents')}
-          className="flex items-center gap-1.5 font-semibold text-[15px]"
-        >
-          <BookMarked className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-          <span>{t.appTitle}</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => handleNavigate('documents')}
+            className="flex items-center gap-1.5 font-semibold text-[15px]"
+          >
+            <BookMarked className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            <span>{t.appTitle}</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          aria-label={t.settingsButton}
-          className="touch-target inline-flex items-center justify-center rounded-lg text-[#555552] dark:text-[#C5C4C0] hover:bg-[#EBEBE8] dark:hover:bg-[#2C2C2C]"
-        >
-          <Settings className="w-5 h-5" />
-        </button>
-      </header>
+          <div className="flex items-center gap-1">
+            {activeView !== 'pomodoro' && (
+              <button
+                type="button"
+                onClick={() => handleNavigate('pomodoro')}
+                aria-label={t.navPomodoro}
+              >
+                <LivePomodoroBadge compact />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              aria-label={t.settingsButton}
+              className="touch-target inline-flex items-center justify-center rounded-lg text-[#555552] dark:text-[#C5C4C0] hover:bg-[#EBEBE8] dark:hover:bg-[#2C2C2C]"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          </div>
+        </header>
 
       {/* Main Two-Column Layout (1/5 : 4/5 on Desktop >= 768px, expands to 100% when collapsed) */}
       <div className="flex-1 min-h-0 w-full flex overflow-hidden relative">
@@ -537,7 +576,7 @@ export default function App() {
         <main className="flex-1 h-full min-h-0 min-w-0 flex flex-col overflow-hidden bg-[#FFFFFF] dark:bg-[#191919] relative">
           {/* Desktop Expand Sidebar Toggle (shown cleanly when collapsed) */}
           {sidebarCollapsed && (
-            <div className="hidden md:flex no-print items-center px-4 py-2 border-b border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5]/70 dark:bg-[#202020]/70 shrink-0 gap-2">
+            <div className="hidden md:flex no-print items-center justify-between px-4 py-2 border-b border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5]/70 dark:bg-[#202020]/70 shrink-0 gap-2">
               <button
                 type="button"
                 onClick={() => setSidebarCollapsed(false)}
@@ -548,6 +587,15 @@ export default function App() {
                 <PanelLeftOpen className="w-4 h-4" />
                 <span>{t.expandSidebar}</span>
               </button>
+              {activeView !== 'pomodoro' && (
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('pomodoro')}
+                  className="hover:opacity-85 transition"
+                >
+                  <LivePomodoroBadge />
+                </button>
+              )}
             </div>
           )}
 
@@ -681,6 +729,7 @@ export default function App() {
           </button>
         </div>
       )}
-    </div>
+      </div>
+    </PomodoroProvider>
   );
 }
