@@ -1,8 +1,11 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 
 /**
- * Modular Gemini AI Service using the current @google/genai Interactions API
- * with the fast multimodal model `gemini-4-hydrogen`.
+ * Modular Gemini AI Service using the official @google/genai SDK
+ * via `ai.models.generateContent` with standard `inlineData` multimodal parts
+ * and structured JSON response schemas.
+ *
+ * Uses `gemini-4-hydrogen` (current fast multimodal model; optional override via VITE_GEMINI_MODEL).
  *
  * Capabilities:
  *  1. scanA4Document      — Multimodal A4 OCR -> clean Markdown + KaTeX
@@ -10,7 +13,7 @@ import { GoogleGenAI } from '@google/genai';
  *  3. generateDocumentQuiz — Strict source-grounded MCQ quiz (NO external facts)
  */
 
-const MODEL_ID = 'gemini-4-hydrogen';
+const MODEL_ID = (import.meta.env.VITE_GEMINI_MODEL || 'gemini-4-hydrogen').trim();
 
 export function isGeminiConfigured() {
   return Boolean((import.meta.env.VITE_GEMINI_API_KEY || '').trim());
@@ -27,23 +30,30 @@ function getClient() {
 }
 
 /**
- * Helper to extract text safely from an Interaction response.
+ * Helper to extract text safely from a GenerateContentResponse.
  */
-function extractTextFromInteraction(interaction) {
-  if (interaction?.output_text) {
-    return interaction.output_text.trim();
+function extractTextFromResponse(response) {
+  if (typeof response?.text === 'string' && response.text.trim()) {
+    return response.text.trim();
   }
-  const steps = interaction?.steps || [];
-  for (let i = steps.length - 1; i >= 0; i--) {
-    const step = steps[i];
-    if (step?.type === 'model_output' && Array.isArray(step.content)) {
-      const textParts = step.content
-        .filter((part) => part?.type === 'text' && part.text)
-        .map((part) => part.text);
-      if (textParts.length > 0) return textParts.join('\n').trim();
-    }
-  }
-  return '';
+  const parts = response?.candidates?.[0]?.content?.parts || [];
+  const joined = parts
+    .filter((part) => typeof part?.text === 'string')
+    .map((part) => part.text)
+    .join('\n')
+    .trim();
+  return joined;
+}
+
+/**
+ * Safely parse JSON text from model output, stripping accidental markdown fences.
+ */
+function parseJsonResponse(rawText) {
+  const cleaned = (rawText || '')
+    .replace(/^```(?:json)?\s*\n?/i, '')
+    .replace(/\n?```\s*$/i, '')
+    .trim();
+  return JSON.parse(cleaned);
 }
 
 /**
@@ -68,6 +78,7 @@ export function fileToBase64(file) {
 
 /**
  * 1. A4 Document OCR Scanner -> Structured Markdown + KaTeX
+ * Uses standard `ai.models.generateContent` with `inlineData` base64 image payload.
  */
 export async function scanA4Document({ base64Data, mimeType, language = 'en' }) {
   const ai = getClient();
@@ -90,24 +101,30 @@ $$
 4. Do NOT wrap the entire response in triple-backtick markdown code fences. Return raw Markdown directly.
 5. Do NOT invent content that is not on the page. ${langHint}`;
 
-  const interaction = await ai.interactions.create({
+  const response = await ai.models.generateContent({
     model: MODEL_ID,
-    system_instruction: systemInstruction,
-    input: [
+    contents: [
       {
-        type: 'text',
-        text: 'Transcribe this A4 page into clean Markdown with KaTeX math/chemical formulas. Provide a clear # Heading title at the top matching the document.',
-      },
-      {
-        type: 'image',
-        data: base64Data,
-        mime_type: mimeType || 'image/jpeg',
+        role: 'user',
+        parts: [
+          {
+            text: 'Transcribe this A4 page into clean Markdown with KaTeX math/chemical formulas. Provide a clear # Heading title at the top matching the document.',
+          },
+          {
+            inlineData: {
+              mimeType: mimeType || 'image/jpeg',
+              data: base64Data,
+            },
+          },
+        ],
       },
     ],
-    store: false,
+    config: {
+      systemInstruction,
+    },
   });
 
-  let markdown = extractTextFromInteraction(interaction);
+  let markdown = extractTextFromResponse(response);
   // Strip accidental wrapping fences if model adds them
   markdown = markdown.replace(/^```(?:markdown|md)?\s*\n/i, '').replace(/\n```\s*$/i, '').trim();
 
@@ -129,20 +146,20 @@ export async function extractFlashcardsFromDocument({ document, count = 6, langu
   const ai = getClient();
 
   const flashcardSchema = {
-    type: 'object',
+    type: Type.OBJECT,
     properties: {
       cards: {
-        type: 'array',
+        type: Type.ARRAY,
         description: 'Key concept flashcards extracted strictly from the provided document.',
         items: {
-          type: 'object',
+          type: Type.OBJECT,
           properties: {
             front: {
-              type: 'string',
+              type: Type.STRING,
               description: 'Concise question or prompt (supports KaTeX $...$ math).',
             },
             back: {
-              type: 'string',
+              type: Type.STRING,
               description: 'Clear, accurate answer or formula (supports KaTeX $...$ and $$...$$).',
             },
           },
@@ -158,22 +175,20 @@ export async function extractFlashcardsFromDocument({ document, count = 6, langu
       ? 'Write the flashcards in Vietnamese (or match technical terms from the document).'
       : 'Write the flashcards in English (matching the document language where appropriate).';
 
-  const interaction = await ai.interactions.create({
+  const response = await ai.models.generateContent({
     model: MODEL_ID,
-    system_instruction: `You are an expert study coach creating high-retention Spaced Repetition flashcards.
+    contents: `Generate up to ${count} high-yield flashcards from this study document:\n\nTITLE: ${document.title}\n\nCONTENT:\n${document.content}`,
+    config: {
+      systemInstruction: `You are an expert study coach creating high-retention Spaced Repetition flashcards.
 Extract ONLY key definitions, theorems, formulas, and concepts explicitly stated in the provided document.
 Use valid KaTeX LaTeX ($...$ or $$...$$) for mathematical and chemical equations. ${outputLang}`,
-    input: `Generate up to ${count} high-yield flashcards from this study document:\n\nTITLE: ${document.title}\n\nCONTENT:\n${document.content}`,
-    response_format: {
-      type: 'text',
-      mime_type: 'application/json',
-      schema: flashcardSchema,
+      responseMimeType: 'application/json',
+      responseSchema: flashcardSchema,
     },
-    store: false,
   });
 
-  const rawText = extractTextFromInteraction(interaction);
-  const parsed = JSON.parse(rawText);
+  const rawText = extractTextFromResponse(response);
+  const parsed = parseJsonResponse(rawText);
   return Array.isArray(parsed?.cards) ? parsed.cards : [];
 }
 
@@ -189,32 +204,32 @@ export async function generateDocumentQuiz({
   const ai = getClient();
 
   const quizSchema = {
-    type: 'object',
+    type: Type.OBJECT,
     properties: {
       title: {
-        type: 'string',
+        type: Type.STRING,
         description: 'Short quiz title derived from the source documents.',
       },
       questions: {
-        type: 'array',
+        type: Type.ARRAY,
         items: {
-          type: 'object',
+          type: Type.OBJECT,
           properties: {
             question: {
-              type: 'string',
+              type: Type.STRING,
               description: 'Multiple-choice question strictly grounded in the provided document text.',
             },
             options: {
-              type: 'array',
-              items: { type: 'string' },
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
               description: 'Exactly 4 distinct answer choices (A, B, C, D).',
             },
             correctIndex: {
-              type: 'integer',
+              type: Type.INTEGER,
               description: '0-based index (0 to 3) of the single correct option.',
             },
             explanation: {
-              type: 'string',
+              type: Type.STRING,
               description: 'Brief explanation citing only facts/formulas present in the source document.',
             },
           },
@@ -247,20 +262,18 @@ CRITICAL ANTI-HALLUCINATION & GROUNDING RULES:
 5. Use KaTeX syntax ($...$) for any mathematical or chemical formulas.
 6. ${langRule}`;
 
-  const interaction = await ai.interactions.create({
+  const response = await ai.models.generateContent({
     model: MODEL_ID,
-    system_instruction: systemInstruction,
-    input: `Create a ${questionCount}-question multiple-choice quiz strictly from the following document(s):\n\n${combinedCorpus}`,
-    response_format: {
-      type: 'text',
-      mime_type: 'application/json',
-      schema: quizSchema,
+    contents: `Create a ${questionCount}-question multiple-choice quiz strictly from the following document(s):\n\n${combinedCorpus}`,
+    config: {
+      systemInstruction,
+      responseMimeType: 'application/json',
+      responseSchema: quizSchema,
     },
-    store: false,
   });
 
-  const rawText = extractTextFromInteraction(interaction);
-  const parsed = JSON.parse(rawText);
+  const rawText = extractTextFromResponse(response);
+  const parsed = parseJsonResponse(rawText);
   const questions = (parsed?.questions || [])
     .filter((q) => q && q.question && Array.isArray(q.options) && q.options.length >= 2)
     .map((q) => ({
