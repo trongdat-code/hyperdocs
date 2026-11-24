@@ -88,6 +88,7 @@ export default function DocumentList({
   const [gdocFolderIds, setGdocFolderIds] = useState([]);
   const [gdocTags, setGdocTags] = useState(['Google Docs']);
   const [gdocTagDraft, setGdocTagDraft] = useState('');
+  const [autoSanitizeKatex, setAutoSanitizeKatex] = useState(true);
   const [isImportingGdoc, setIsImportingGdoc] = useState(false);
   const [gdocError, setGdocError] = useState('');
 
@@ -189,7 +190,9 @@ export default function DocumentList({
 
     if (isDocx) {
       try {
-        const { title, content } = await convertDocxFileToMarkdown(file);
+        const { title, content } = await convertDocxFileToMarkdown(file, {
+          sanitizeKatex: autoSanitizeKatex,
+        });
         const newDoc = {
           id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
           title,
@@ -248,7 +251,9 @@ export default function DocumentList({
     setGdocError('');
 
     try {
-      const { title, markdown } = await importGoogleDoc(gdocUrl.trim());
+      const { title, markdown } = await importGoogleDoc(gdocUrl.trim(), {
+        sanitizeKatex: autoSanitizeKatex,
+      });
       const finalTags = [...gdocTags];
       if (
         gdocTagDraft.trim() &&
@@ -1261,6 +1266,24 @@ export default function DocumentList({
                     </button>
                   </div>
                 </div>
+
+                {/* Auto-format Math/Chemistry KaTeX Checkbox */}
+                <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-[#343434] bg-[#F7F7F5] dark:bg-[#202020] cursor-pointer transition hover:border-indigo-500/40">
+                  <input
+                    type="checkbox"
+                    checked={autoSanitizeKatex}
+                    onChange={(e) => setAutoSanitizeKatex(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded border-[#BDBCB8] text-indigo-600 focus:ring-indigo-500 shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-semibold text-[#2F2F2F] dark:text-[#E8E8E6]">
+                      {t.autoFormatKatexLabel}
+                    </p>
+                    <p className="text-[12px] text-[#787774] dark:text-[#9B9A97] leading-snug mt-0.5">
+                      {t.autoFormatKatexHint}
+                    </p>
+                  </div>
+                </label>
 
                 <div className="flex justify-end gap-2 pt-2">
                   <button

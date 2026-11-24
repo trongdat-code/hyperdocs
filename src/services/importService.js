@@ -1,15 +1,16 @@
 import mammoth from 'mammoth';
 import TurndownService from 'turndown';
+import { sanitizeImportedMarkdown } from '../utils/katexSanitizer';
 
 /**
  * Client-Side Document Import Service
- *  1. importGoogleDoc(url)            — Calls server-side `/api/import-gdoc`
- *  2. convertDocxFileToMarkdown(file) — Converts `.docx` -> HTML (mammoth) -> Markdown (turndown)
+ *  1. importGoogleDoc(url, opts)            — Calls server-side `/api/import-gdoc`
+ *  2. convertDocxFileToMarkdown(file, opts) — Converts `.docx` -> HTML (mammoth) -> Markdown (turndown)
  */
 
 const GDOC_IMPORT_ENDPOINT = '/api/import-gdoc';
 
-export async function importGoogleDoc(url) {
+export async function importGoogleDoc(url, { sanitizeKatex = true } = {}) {
   let response;
   try {
     response = await fetch(GDOC_IMPORT_ENDPOINT, {
@@ -39,14 +40,15 @@ export async function importGoogleDoc(url) {
     throw err;
   }
 
+  const rawMarkdown = data?.markdown || '';
   return {
     title: data?.title || 'Imported Google Doc',
-    markdown: data?.markdown || '',
+    markdown: sanitizeKatex ? sanitizeImportedMarkdown(rawMarkdown) : rawMarkdown,
     format: data?.format || 'md',
   };
 }
 
-export async function convertDocxFileToMarkdown(file) {
+export async function convertDocxFileToMarkdown(file, { sanitizeKatex = true } = {}) {
   const arrayBuffer = await file.arrayBuffer();
   const { value: html } = await mammoth.convertToHtml({ arrayBuffer });
 
@@ -84,7 +86,8 @@ export async function convertDocxFileToMarkdown(file) {
 
   const baseName = file.name.replace(/\.docx$/i, '').trim() || 'Imported Word Document';
   const markdown = turndown.turndown(html || '').replace(/\n{3,}/g, '\n\n').trim();
-  const content = markdown.startsWith('#') ? markdown : `# ${baseName}\n\n${markdown}`;
+  const rawContent = markdown.startsWith('#') ? markdown : `# ${baseName}\n\n${markdown}`;
+  const content = sanitizeKatex ? sanitizeImportedMarkdown(rawContent) : rawContent;
 
   return {
     title: baseName,
