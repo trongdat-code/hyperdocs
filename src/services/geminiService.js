@@ -2,10 +2,12 @@ import { GoogleGenAI, Type } from '@google/genai';
 
 /**
  * Modular Gemini AI Service using the official @google/genai SDK
- * via `ai.models.generateContent` with standard `inlineData` multimodal parts
- * and structured JSON response schemas.
+ * via `ai.models.generateContent` with standard `inlineData` multimodal parts,
+ * structured JSON response schemas, and automatic 503/429 retry + model fallback.
  *
- * Uses `gemini-4-hydrogen` (current fast multimodal model; optional override via VITE_GEMINI_MODEL).
+ * Primary model: `gemini-4-hydrogen` (override via VITE_GEMINI_MODEL)
+ * Secondary fallback models: `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`
+ * (override via comma-separated VITE_GEMINI_FALLBACK_MODELS)
  *
  * Capabilities:
  *  1. scanA4Document      — Multimodal A4 OCR -> clean Markdown + KaTeX
@@ -13,7 +15,118 @@ import { GoogleGenAI, Type } from '@google/genai';
  *  3. generateDocumentQuiz — Strict source-grounded MCQ quiz (NO external facts)
  */
 
-const MODEL_ID = (import.meta.env.VITE_GEMINI_MODEL || 'gemini-4-hydrogen').trim();
+const PRIMARY_MODEL = (import.meta.env.VITE_GEMINI_MODEL || 'gemini-4-hydrogen').trim();
+const DEFAULT_FALLBACK_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+const RETRY_DELAY_MS = 2000;
+
+function getModelChain() {
+  const customFallbacks = (import.meta.env.VITE_GEMINI_FALLBACK_MODELS || '')
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean);
+  const fallbacks = customFallbacks.length > 0 ? customFallbacks : DEFAULT_FALLBACK_MODELS;
+  return Array.from(new Set([PRIMARY_MODEL, ...fallbacks]));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getErrorStatusCode(error) {
+  const candidates = [
+    error?.status,
+    error?.statusCode,
+    error?.code,
+    error?.error?.code,
+    error?.cause?.status,
+  ];
+  for (const val of candidates) {
+    const num = Number(val);
+    if (Number.isFinite(num) && num >= 100 && num < 600) return num;
+  }
+  const msg = String(error?.message || '');
+  const match = msg.match(/\b(429|503|500|502|504|404)\b/);
+  return match ? Number(match[1]) : null;
+}
+
+function isHighDemandOrRateLimitError(error) {
+  const code = getErrorStatusCode(error);
+  if (code === 503 || code === 429) return true;
+  const statusText = String(error?.error?.status || error?.status || '').toUpperCase();
+  if (statusText === 'UNAVAILABLE' || statusText === 'RESOURCE_EXHAUSTED') return true;
+  const msg = String(error?.message || '');
+  return /high demand|overloaded|unavailable|resource_exhausted|rate limit|too many requests|quota/i.test(
+    msg
+  );
+}
+
+function isModelUnavailableError(error) {
+  const code = getErrorStatusCode(error);
+  if (code === 404) return true;
+  const statusText = String(error?.error?.status || '').toUpperCase();
+  return statusText === 'NOT_FOUND' || /model.*not found|not supported for generateContent/i.test(String(error?.message || ''));
+}
+
+/**
+ * Wraps `ai.models.generateContent` with automatic retry + fallback:
+ *  - If the primary model throws 503 (high demand) or 429 (rate limit),
+ *    retries the primary model once after 2 seconds.
+ *  - If it still fails (or is unavailable), automatically falls back through
+ *    secondary Gemini Flash-Lite models in order.
+ */
+async function generateContentWithRetryAndFallback(ai, requestParams) {
+  const models = getModelChain();
+  let lastError = null;
+
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
+    const isPrimary = i === 0;
+
+    try {
+      return await ai.models.generateContent({
+        ...requestParams,
+        model,
+      });
+    } catch (err) {
+      lastError = err;
+
+      if (isPrimary && isHighDemandOrRateLimitError(err)) {
+        console.warn(
+          `[GeminiService] Primary model "${model}" returned 503/429. Retrying once in ${RETRY_DELAY_MS}ms...`
+        );
+        await sleep(RETRY_DELAY_MS);
+
+        try {
+          return await ai.models.generateContent({
+            ...requestParams,
+            model,
+          });
+        } catch (retryErr) {
+          lastError = retryErr;
+          if (!isHighDemandOrRateLimitError(retryErr) && !isModelUnavailableError(retryErr)) {
+            throw retryErr;
+          }
+          console.warn(
+            `[GeminiService] Primary model "${model}" retry failed. Falling back to secondary Flash models...`
+          );
+          continue;
+        }
+      }
+
+      if (isHighDemandOrRateLimitError(err) || isModelUnavailableError(err)) {
+        console.warn(
+          `[GeminiService] Model "${model}" unavailable (${getErrorStatusCode(err) || 'error'}). Trying next fallback...`
+        );
+        continue;
+      }
+
+      // Non-retryable error (e.g., 400 bad request, 401/403 invalid API key)
+      throw err;
+    }
+  }
+
+  throw lastError;
+}
 
 export function isGeminiConfigured() {
   return Boolean((import.meta.env.VITE_GEMINI_API_KEY || '').trim());
@@ -101,8 +214,7 @@ $$
 4. Do NOT wrap the entire response in triple-backtick markdown code fences. Return raw Markdown directly.
 5. Do NOT invent content that is not on the page. ${langHint}`;
 
-  const response = await ai.models.generateContent({
-    model: MODEL_ID,
+  const response = await generateContentWithRetryAndFallback(ai, {
     contents: [
       {
         role: 'user',
@@ -175,8 +287,7 @@ export async function extractFlashcardsFromDocument({ document, count = 6, langu
       ? 'Write the flashcards in Vietnamese (or match technical terms from the document).'
       : 'Write the flashcards in English (matching the document language where appropriate).';
 
-  const response = await ai.models.generateContent({
-    model: MODEL_ID,
+  const response = await generateContentWithRetryAndFallback(ai, {
     contents: `Generate up to ${count} high-yield flashcards from this study document:\n\nTITLE: ${document.title}\n\nCONTENT:\n${document.content}`,
     config: {
       systemInstruction: `You are an expert study coach creating high-retention Spaced Repetition flashcards.
@@ -262,8 +373,7 @@ CRITICAL ANTI-HALLUCINATION & GROUNDING RULES:
 5. Use KaTeX syntax ($...$) for any mathematical or chemical formulas.
 6. ${langRule}`;
 
-  const response = await ai.models.generateContent({
-    model: MODEL_ID,
+  const response = await generateContentWithRetryAndFallback(ai, {
     contents: `Create a ${questionCount}-question multiple-choice quiz strictly from the following document(s):\n\n${combinedCorpus}`,
     config: {
       systemInstruction,
