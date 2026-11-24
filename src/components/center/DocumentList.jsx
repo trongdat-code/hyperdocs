@@ -25,8 +25,11 @@ import {
   Sparkles,
   Calendar,
   FolderInput,
+  Link2,
+  AlertCircle,
 } from 'lucide-react';
 import { fileToBase64, scanA4Document } from '../../services/geminiService';
+import { convertDocxFileToMarkdown, importGoogleDoc } from '../../services/importService';
 
 const MAX_TAGS = 3;
 
@@ -78,6 +81,15 @@ export default function DocumentList({
   const [scannedTitle, setScannedTitle] = useState('');
   const [scannedTags, setScannedTags] = useState(['A4 Scan']);
   const [scannedTagDraft, setScannedTagDraft] = useState('');
+
+  // Google Docs Import Modal state
+  const [showGdocModal, setShowGdocModal] = useState(false);
+  const [gdocUrl, setGdocUrl] = useState('');
+  const [gdocFolderIds, setGdocFolderIds] = useState([]);
+  const [gdocTags, setGdocTags] = useState(['Google Docs']);
+  const [gdocTagDraft, setGdocTagDraft] = useState('');
+  const [isImportingGdoc, setIsImportingGdoc] = useState(false);
+  const [gdocError, setGdocError] = useState('');
 
   const uploadInputRef = useRef(null);
   const scanInputRef = useRef(null);
@@ -163,11 +175,37 @@ export default function DocumentList({
     setDraft('');
   };
 
-  // Plain text / Markdown upload
+  // Plain text, Markdown, or Word (.docx) upload
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+
+    const now = Date.now();
+    const isDocx =
+      /\.docx$/i.test(file.name) ||
+      file.type ===
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+    if (isDocx) {
+      try {
+        const { title, content } = await convertDocxFileToMarkdown(file);
+        const newDoc = {
+          id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
+          title,
+          tags: ['DOCX'],
+          folderIds: [],
+          createdAt: now,
+          updatedAt: now,
+          content,
+        };
+        onCreateDocument(newDoc, true);
+        onNotify(t.docxImportSuccess, 'success');
+      } catch {
+        onNotify(t.docxImportError, 'error');
+      }
+      return;
+    }
 
     const text = await file.text();
     const baseName = file.name.replace(/\.(md|markdown|txt)$/i, '').trim() || t.untitledDoc;
@@ -175,7 +213,6 @@ export default function DocumentList({
     const normalizedContent =
       isPlainText && !text.trim().startsWith('#') ? `# ${baseName}\n\n${text}` : text;
 
-    const now = Date.now();
     const newDoc = {
       id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
       title: baseName,
@@ -186,6 +223,63 @@ export default function DocumentList({
       content: normalizedContent,
     };
     onCreateDocument(newDoc, true);
+  };
+
+  // Google Docs Import Handlers
+  const handleOpenGdocModal = () => {
+    setGdocUrl('');
+    setGdocFolderIds([]);
+    setGdocTags(['Google Docs']);
+    setGdocTagDraft('');
+    setGdocError('');
+    setShowGdocModal(true);
+  };
+
+  const toggleGdocTargetFolder = (folderId) => {
+    setGdocFolderIds((prev) =>
+      prev.includes(folderId) ? prev.filter((id) => id !== folderId) : [...prev, folderId]
+    );
+  };
+
+  const handleImportGdocSubmit = async (e) => {
+    e.preventDefault();
+    if (!gdocUrl.trim()) return;
+    setIsImportingGdoc(true);
+    setGdocError('');
+
+    try {
+      const { title, markdown } = await importGoogleDoc(gdocUrl.trim());
+      const finalTags = [...gdocTags];
+      if (
+        gdocTagDraft.trim() &&
+        finalTags.length < MAX_TAGS &&
+        !finalTags.includes(gdocTagDraft.trim())
+      ) {
+        finalTags.push(gdocTagDraft.trim());
+      }
+
+      const now = Date.now();
+      const newDoc = {
+        id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
+        title: title || t.untitledDoc,
+        tags: finalTags.slice(0, MAX_TAGS),
+        folderIds: [...gdocFolderIds],
+        createdAt: now,
+        updatedAt: now,
+        content: markdown,
+      };
+      onCreateDocument(newDoc, true);
+      setShowGdocModal(false);
+      onNotify(t.gdocImportSuccess, 'success');
+    } catch (err) {
+      if (err.code === 'RESTRICTED_DOC') {
+        setGdocError(t.gdocRestrictedError);
+      } else {
+        setGdocError(err.message || 'Failed to import Google Doc.');
+      }
+    } finally {
+      setIsImportingGdoc(false);
+    }
   };
 
   const handleNewNote = () => {
@@ -466,6 +560,16 @@ export default function DocumentList({
                 <span>{t.newFolder}</span>
               </button>
 
+              {/* Import Google Doc */}
+              <button
+                type="button"
+                onClick={handleOpenGdocModal}
+                className="min-h-[38px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#262626] hover:bg-[#F1F1EF] dark:hover:bg-[#323232] text-[#2F2F2F] dark:text-[#E8E8E6] text-[13px] font-medium inline-flex items-center gap-1.5 transition"
+              >
+                <Link2 className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                <span>{t.importGdoc}</span>
+              </button>
+
               {/* AI A4 OCR Scanner */}
               <button
                 type="button"
@@ -476,10 +580,11 @@ export default function DocumentList({
                 <span>{t.scanA4}</span>
               </button>
 
-              {/* Upload .md / .txt */}
+              {/* Upload .md / .txt / .docx */}
               <button
                 type="button"
                 onClick={() => uploadInputRef.current?.click()}
+                title=".md, .txt, .docx"
                 className="min-h-[38px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#202020] hover:bg-[#F1F1EF] dark:hover:bg-[#262626] text-[#2F2F2F] dark:text-[#E8E8E6] text-[13px] font-medium inline-flex items-center gap-1.5 transition"
               >
                 <Upload className="w-4 h-4" />
@@ -488,7 +593,7 @@ export default function DocumentList({
               <input
                 ref={uploadInputRef}
                 type="file"
-                accept=".md,.markdown,.txt,text/plain,text/markdown"
+                accept=".md,.markdown,.txt,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={handleFileUpload}
                 className="hidden"
               />
@@ -996,6 +1101,187 @@ export default function DocumentList({
                   >
                     <Check className="w-4 h-4" />
                     <span>{t.save}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Import Google Doc Modal */}
+      {showGdocModal &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4"
+            onClick={() => !isImportingGdoc && setShowGdocModal(false)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-2xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E5E5E3] dark:border-[#2F2F2F] shadow-2xl p-5"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-sky-500/15 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+                    <Link2 className="w-4 h-4" />
+                  </div>
+                  <h3 className="font-semibold text-[16px]">{t.gdocModalTitle}</h3>
+                </div>
+                <button
+                  type="button"
+                  disabled={isImportingGdoc}
+                  onClick={() => setShowGdocModal(false)}
+                  className="touch-target inline-flex items-center justify-center rounded-lg text-[#787774] hover:bg-[#F1F1EF] dark:hover:bg-[#323232]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-[13px] text-[#787774] dark:text-[#9B9A97] mb-4 leading-relaxed">
+                {t.gdocModalDesc}
+              </p>
+
+              <form onSubmit={handleImportGdocSubmit} className="space-y-4">
+                {/* Google Docs URL */}
+                <div>
+                  <label className="block text-[13px] font-medium text-[#787774] dark:text-[#9B9A97] mb-1.5">
+                    {t.gdocUrlLabel}
+                  </label>
+                  <input
+                    type="url"
+                    required
+                    autoFocus
+                    value={gdocUrl}
+                    onChange={(e) => {
+                      setGdocUrl(e.target.value);
+                      if (gdocError) setGdocError('');
+                    }}
+                    placeholder={t.gdocUrlPlaceholder}
+                    className="w-full min-h-[42px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[14px] focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  />
+                </div>
+
+                {/* Inline Error Alert (e.g. Restricted Google Doc) */}
+                {gdocError && (
+                  <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 flex items-start gap-2.5 text-[13px] text-rose-700 dark:text-rose-300">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span className="leading-snug">{gdocError}</span>
+                  </div>
+                )}
+
+                {/* Optional Target Folders (Many-to-Many) */}
+                {folders.length > 0 && (
+                  <div>
+                    <label className="block text-[13px] font-medium text-[#787774] dark:text-[#9B9A97] mb-1.5">
+                      {t.gdocTargetFoldersLabel}
+                    </label>
+                    <div className="max-h-36 overflow-y-auto space-y-1 pr-0.5">
+                      {folders.map((folder) => {
+                        const checked = gdocFolderIds.includes(folder.id);
+                        return (
+                          <label
+                            key={folder.id}
+                            className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border text-[14px] cursor-pointer transition ${
+                              checked
+                                ? 'border-indigo-500/50 bg-indigo-500/5'
+                                : 'border-[#E5E5E3] dark:border-[#343434] hover:bg-[#F7F7F5] dark:hover:bg-[#2F2F2F]'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleGdocTargetFolder(folder.id)}
+                              className="w-4 h-4 rounded border-[#BDBCB8] text-indigo-600 focus:ring-indigo-500 shrink-0"
+                            />
+                            <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+                            <span className="truncate font-medium">{folder.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Optional Tags (Max 3) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[13px] font-medium text-[#787774] dark:text-[#9B9A97]">
+                      {t.editTags} ({gdocTags.length}/{MAX_TAGS})
+                    </label>
+                    <span className="text-[12px] text-[#9B9A97]">{t.maxTagsHint}</span>
+                  </div>
+
+                  {gdocTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {gdocTags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F1F1EF] dark:bg-[#323232] text-[13px] font-medium"
+                        >
+                          {tag}
+                          <button
+                            type="button"
+                            onClick={() => setGdocTags(gdocTags.filter((x) => x !== tag))}
+                            className="hover:text-rose-500"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      disabled={gdocTags.length >= MAX_TAGS}
+                      value={gdocTagDraft}
+                      onChange={(e) => setGdocTagDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addTagToList(gdocTagDraft, gdocTags, setGdocTags, setGdocTagDraft);
+                        }
+                      }}
+                      placeholder={
+                        gdocTags.length >= MAX_TAGS ? t.maxTagsReached : t.addTagPlaceholder
+                      }
+                      className="flex-1 min-h-[38px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[13px] disabled:opacity-50"
+                    />
+                    <button
+                      type="button"
+                      disabled={gdocTags.length >= MAX_TAGS || !gdocTagDraft.trim()}
+                      onClick={() =>
+                        addTagToList(gdocTagDraft, gdocTags, setGdocTags, setGdocTagDraft)
+                      }
+                      className="px-3.5 rounded-xl bg-[#F1F1EF] dark:bg-[#323232] font-semibold text-[14px] disabled:opacity-40"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={isImportingGdoc}
+                    onClick={() => setShowGdocModal(false)}
+                    className="min-h-[40px] px-4 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] text-[14px] font-medium"
+                  >
+                    {t.cancel}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isImportingGdoc || !gdocUrl.trim()}
+                    className="min-h-[40px] px-5 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-[14px] font-semibold inline-flex items-center gap-2"
+                  >
+                    {isImportingGdoc ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Link2 className="w-4 h-4" />
+                    )}
+                    <span>{isImportingGdoc ? t.gdocImporting : t.gdocImportSubmit}</span>
                   </button>
                 </div>
               </form>
