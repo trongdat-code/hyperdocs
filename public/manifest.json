@@ -1,0 +1,18 @@
+{
+  "name": "HyperDocs — All-in-One Study Hub",
+  "short_name": "HyperDocs",
+  "description": "All-in-One Study Hub with Task Manager, Pomodoro Focus Mode, SM-2 Spaced Repetition, AI A4 OCR Markdown + KaTeX Reader, and Source-Grounded Quizzes.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090B",
+  "theme_color": "#0F172A",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
