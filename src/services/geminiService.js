@@ -147,6 +147,23 @@ export async function scanA4Document({ base64Data, mimeType, language = 'en' }) 
 }
 
 /**
+ * 1a. Batched Scanned PDF Page OCR -> Structured Markdown + KaTeX
+ * Sends 1-3 rendered JPEG page images per call to `/api/gemini` (`action: 'ocr'`).
+ */
+export async function ocrPdfPageBatch({ images, language = 'en' }) {
+  const data = await postGeminiAction({
+    action: 'ocr',
+    images,
+    language,
+  });
+
+  return {
+    markdown: data?.markdown || '',
+    suggestedTitle: data?.suggestedTitle || '',
+  };
+}
+
+/**
  * 1b. PDF Document to Markdown + KaTeX (for PDFs <= 4MB via Gemini inlineData)
  */
 export async function convertPdfWithGemini({ base64Data, fileName = '', language = 'en' }) {

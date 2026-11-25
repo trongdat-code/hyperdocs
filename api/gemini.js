@@ -178,11 +178,14 @@ function parseJsonResponse(rawText) {
 }
 
 async function handleOcr(ai, body) {
-  const imageData = body.imageData || body.base64Data;
-  const mimeType = body.mimeType || 'image/jpeg';
   const language = body.language === 'vi' ? 'vi' : 'en';
+  const batchImages = Array.isArray(body.images)
+    ? body.images.filter((img) => img && typeof img.data === 'string' && img.data.length > 0)
+    : [];
+  const singleImageData = body.imageData || body.base64Data;
+  const singleMimeType = body.mimeType || 'image/jpeg';
 
-  if (!imageData || typeof imageData !== 'string') {
+  if (batchImages.length === 0 && (!singleImageData || typeof singleImageData !== 'string')) {
     const err = new Error('Missing base64 imageData payload.');
     err.httpStatus = 400;
     throw err;
@@ -190,21 +193,49 @@ async function handleOcr(ai, body) {
 
   const langHint =
     language === 'vi'
-      ? 'Preserve the original language of the document (Vietnamese or English).'
+      ? 'Preserve the original language of the document (Vietnamese or English) with accurate Vietnamese diacritics.'
       : 'Preserve the original language of the document accurately.';
 
   const systemInstruction = `You are a precision academic OCR and scientific typesetting engine.
-Your task is to transcribe photographed or scanned A4 study documents into clean, publication-grade Markdown with KaTeX-compatible LaTeX math and chemical equations.
+Your task is to transcribe photographed or scanned study document pages into clean, publication-grade Markdown with KaTeX-compatible LaTeX math and chemical equations.
 
 Strict Formatting Rules:
-1. Preserve document hierarchy using Markdown headings (#, ##, ###), bullet/numbered lists, bold key terms, and Markdown tables when present.
-2. Convert ALL inline mathematical/physical/chemical symbols and formulas into inline LaTeX wrapped in single dollar signs: $...$ (e.g., $\\Delta G = \\Delta H - T\\Delta S$, $\\text{H}_2\\text{SO}_4$).
+1. Preserve document hierarchy using Markdown headings (#, ##, ###), bullet/numbered lists, bold key terms, exercise/question numbering (e.g. "Câu 1:", "Bài 1:", "A.", "B.", "C.", "D."), and Markdown tables when present.
+2. Convert ALL inline mathematical/physical/chemical symbols and formulas into inline LaTeX wrapped in single dollar signs: $...$ (e.g., $\\Delta G = \\Delta H - T\\Delta S$, $\\text{H}_2\\text{SO}_4$, $\\text{Fe}^{3+}$).
 3. Convert ALL standalone or multi-line equations into display LaTeX wrapped in double dollar signs on their own lines:
 $$
 ...
 $$
 4. Do NOT wrap the entire response in triple-backtick markdown code fences. Return raw Markdown directly.
-5. Do NOT invent content that is not on the page. ${langHint}`;
+5. Transcribe ALL visible text faithfully — do NOT summarize, skip questions, or invent content that is not on the page. ${langHint}`;
+
+  const parts = [];
+  if (batchImages.length > 0) {
+    const pageLabels = batchImages
+      .map((img, idx) => (img.pageNumber ? `Page ${img.pageNumber}` : `Page ${idx + 1}`))
+      .join(', ');
+    parts.push({
+      text: `Transcribe all attached scanned PDF pages (${pageLabels}) in order into clean Markdown with valid inline ($...$) and display ($$...$$) KaTeX math and chemical formulas. Preserve all headings, tables, and question numbering verbatim.`,
+    });
+    for (const img of batchImages) {
+      parts.push({
+        inlineData: {
+          mimeType: img.mimeType || 'image/jpeg',
+          data: img.data,
+        },
+      });
+    }
+  } else {
+    parts.push({
+      text: 'Transcribe this A4 page into clean Markdown with KaTeX math/chemical formulas. Provide a clear # Heading title at the top matching the document.',
+    });
+    parts.push({
+      inlineData: {
+        mimeType: singleMimeType,
+        data: singleImageData,
+      },
+    });
+  }
 
   const response = await generateWithRetryAndFallback(
     ai,
@@ -213,17 +244,7 @@ $$
       contents: [
         {
           role: 'user',
-          parts: [
-            {
-              text: 'Transcribe this A4 page into clean Markdown with KaTeX math/chemical formulas. Provide a clear # Heading title at the top matching the document.',
-            },
-            {
-              inlineData: {
-                mimeType,
-                data: imageData,
-              },
-            },
-          ],
+          parts,
         },
       ],
       config: {

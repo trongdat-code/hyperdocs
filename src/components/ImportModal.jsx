@@ -13,6 +13,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import {
+  cleanPdfTitle,
   derivePdfTitleFromUrl,
   fetchPdfFileFromUrl,
   importGoogleDoc,
@@ -148,7 +149,7 @@ export default function ImportModal({
     setErrorMsg('');
     setPdfFile(file);
     if (!pdfTitleOverride.trim()) {
-      setPdfTitleOverride(file.name.replace(/\.pdf$/i, '').trim());
+      setPdfTitleOverride(cleanPdfTitle(file.name, ''));
     }
   };
 
@@ -206,12 +207,13 @@ export default function ImportModal({
           setStatusMessage(t.pdfFetchingUrl);
           // Validate reachability via proxy/direct when possible, but allow Drive /preview fallback
           let resolvedTitle =
-            pdfTitleOverride.trim() || derivePdfTitleFromUrl(info.originalUrl, t.untitledDoc);
+            cleanPdfTitle(pdfTitleOverride.trim(), '') ||
+            derivePdfTitleFromUrl(info.originalUrl, t.untitledDoc);
 
           try {
             const fetched = await fetchPdfFileFromUrl(info.originalUrl);
             if (!pdfTitleOverride.trim() && fetched.title) {
-              resolvedTitle = fetched.title;
+              resolvedTitle = cleanPdfTitle(fetched.title, resolvedTitle);
             }
           } catch (err) {
             if (err.code === 'RESTRICTED_PDF') {
@@ -253,9 +255,8 @@ export default function ImportModal({
         setStatusMessage(t.pdfPreparingEmbed);
         const dataUrl = await readFileAsPdfDataUrl(pdfFile);
         const resolvedTitle =
-          pdfTitleOverride.trim() ||
-          pdfFile.name.replace(/\.pdf$/i, '').trim() ||
-          t.untitledDoc;
+          cleanPdfTitle(pdfTitleOverride.trim(), '') ||
+          cleanPdfTitle(pdfFile.name, t.untitledDoc);
 
         const newDoc = {
           id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
@@ -276,16 +277,16 @@ export default function ImportModal({
         return;
       }
 
-      // Mode 2: Extract Text & Math to Editable Markdown (AI-Powered / pdfjs-dist)
+      // Mode 2: Extract Text & Math to Editable Markdown (AI-Powered / pdfjs-dist + Scanned OCR)
       let fileToExtract = pdfFile;
-      let fallbackTitle = pdfTitleOverride.trim();
+      let fallbackTitle = cleanPdfTitle(pdfTitleOverride.trim(), '');
       let sourceMeta = {};
 
       if (pdfSourceType === 'url') {
         setStatusMessage(t.pdfFetchingUrl);
         const fetched = await fetchPdfFileFromUrl(pdfUrl.trim());
         fileToExtract = fetched.file;
-        if (!fallbackTitle) fallbackTitle = fetched.title;
+        if (!fallbackTitle) fallbackTitle = cleanPdfTitle(fetched.title, '');
         sourceMeta = {
           pdfUrl: fetched.downloadUrl,
           pdfOriginalUrl: fetched.originalUrl,
@@ -296,12 +297,29 @@ export default function ImportModal({
       const { title, content, method } = await importPdfFile(fileToExtract, {
         language: lang,
         sanitizeKatex: autoSanitizeKatex,
-        onProgress: (mode) => {
-          setStatusMessage(mode === 'ai' ? t.pdfConvertingAi : t.pdfExtractingLocal);
+        onProgress: (progress) => {
+          if (!progress) return;
+          if (progress.stage === 'ai') {
+            setStatusMessage(t.pdfConvertingAi);
+          } else if (progress.stage === 'ocr') {
+            setStatusMessage(
+              t.pdfOcrPageProgress(
+                progress.currentPage,
+                progress.endPage || progress.currentPage,
+                progress.totalPages
+              )
+            );
+          } else if (progress.stage === 'local' && progress.totalPages) {
+            setStatusMessage(
+              t.pdfExtractingPageProgress(progress.currentPage, progress.totalPages)
+            );
+          } else {
+            setStatusMessage(t.pdfExtractingLocal);
+          }
         },
       });
 
-      const resolvedTitle = fallbackTitle || title || t.untitledDoc;
+      const resolvedTitle = fallbackTitle || cleanPdfTitle(title, t.untitledDoc);
       const newDoc = {
         id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
         title: resolvedTitle,
@@ -315,17 +333,22 @@ export default function ImportModal({
       onCreateDocument(newDoc, true);
       onClose();
       onNotify(
-        method === 'gemini' ? t.pdfImportSuccessAi : t.pdfImportSuccessLocal,
+        method === 'ocr-fallback'
+          ? t.pdfImportSuccessOcr
+          : method === 'gemini'
+            ? t.pdfImportSuccessAi
+            : t.pdfImportSuccessLocal,
         'success'
       );
     } catch (err) {
-      if (err.code === 'RESTRICTED_PDF') {
-        setErrorMsg(t.pdfRestrictedError);
-      } else if (err.code === 'MISSING_API_KEY') {
-        setErrorMsg(t.missingApiKeyError);
-      } else {
-        setErrorMsg(err?.message || t.pdfImportError);
-      }
+      const msg =
+        err.code === 'RESTRICTED_PDF'
+          ? t.pdfRestrictedError
+          : err.code === 'MISSING_API_KEY'
+            ? t.missingApiKeyError
+            : err?.message || t.pdfImportError;
+      setErrorMsg(msg);
+      onNotify(msg, 'error');
     } finally {
       setIsSubmitting(false);
       setStatusMessage('');
@@ -658,6 +681,14 @@ export default function ImportModal({
                 />
               </div>
             </>
+          )}
+
+          {/* Live Progress Banner during multi-page extraction / OCR */}
+          {isSubmitting && statusMessage && (
+            <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-3 flex items-center gap-2.5 text-[13px] font-medium text-indigo-700 dark:text-indigo-300">
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              <span className="leading-snug">{statusMessage}</span>
+            </div>
           )}
 
           {/* Inline Error Alert */}

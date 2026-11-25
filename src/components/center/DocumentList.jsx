@@ -191,11 +191,30 @@ export default function DocumentList({
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
     if (isPdf) {
-      setPdfStatusMode('ai');
+      setPdfStatusMode(t.pdfConvertingAi);
       try {
         const { title, content, method } = await importPdfFile(file, {
           language: lang,
-          onProgress: (mode) => setPdfStatusMode(mode),
+          onProgress: (progress) => {
+            if (!progress) return;
+            if (progress.stage === 'ai') {
+              setPdfStatusMode(t.pdfConvertingAi);
+            } else if (progress.stage === 'ocr') {
+              setPdfStatusMode(
+                t.pdfOcrPageProgress(
+                  progress.currentPage,
+                  progress.endPage || progress.currentPage,
+                  progress.totalPages
+                )
+              );
+            } else if (progress.stage === 'local' && progress.totalPages) {
+              setPdfStatusMode(
+                t.pdfExtractingPageProgress(progress.currentPage, progress.totalPages)
+              );
+            } else {
+              setPdfStatusMode(t.pdfExtractingLocal);
+            }
+          },
         });
         const newDoc = {
           id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
@@ -208,7 +227,11 @@ export default function DocumentList({
         };
         onCreateDocument(newDoc, true);
         onNotify(
-          method === 'gemini' ? t.pdfImportSuccessAi : t.pdfImportSuccessLocal,
+          method === 'ocr-fallback'
+            ? t.pdfImportSuccessOcr
+            : method === 'gemini'
+              ? t.pdfImportSuccessAi
+              : t.pdfImportSuccessLocal,
           'success'
         );
       } catch (err) {
@@ -684,9 +707,7 @@ export default function DocumentList({
           {pdfStatusMode && (
             <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-2.5 flex items-center gap-2.5 text-[13px] font-medium text-indigo-700 dark:text-indigo-300">
               <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-              <span>
-                {pdfStatusMode === 'ai' ? t.pdfConvertingAi : t.pdfExtractingLocal}
-              </span>
+              <span>{pdfStatusMode}</span>
             </div>
           )}
 

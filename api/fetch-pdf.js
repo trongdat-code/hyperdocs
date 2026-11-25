@@ -105,27 +105,100 @@ function isPdfBuffer(buf) {
   return head.includes('%PDF-');
 }
 
-function extractFilenameFromHeadersOrUrl(disposition, targetUrl) {
-  if (disposition) {
-    const utf8Match = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
-    if (utf8Match?.[1]) {
+function decodeRfc2047(str) {
+  return String(str || '').replace(
+    /=\?utf-?8\?([bq])\?([^?]+)\?=/gi,
+    (match, encoding, payload) => {
       try {
-        return decodeURIComponent(utf8Match[1]).replace(/["\r\n]/g, '').trim();
+        if (encoding.toLowerCase() === 'b') {
+          return Buffer.from(payload, 'base64').toString('utf8');
+        }
+        const bytes = [];
+        const qStr = payload.replace(/_/g, ' ');
+        for (let i = 0; i < qStr.length; i++) {
+          if (qStr[i] === '=' && /^[0-9a-f]{2}$/i.test(qStr.slice(i + 1, i + 3))) {
+            bytes.push(parseInt(qStr.slice(i + 1, i + 3), 16));
+            i += 2;
+          } else {
+            bytes.push(qStr.charCodeAt(i) & 0xff);
+          }
+        }
+        return Buffer.from(bytes).toString('utf8');
       } catch {
-        // fall through
+        return match;
       }
     }
-    const asciiMatch = disposition.match(/filename\s*=\s*"?([^";\r\n]+)"?/i);
-    if (asciiMatch?.[1]) {
-      return asciiMatch[1].replace(/["\r\n]/g, '').trim();
+  );
+}
+
+function fixUtf8Mojibake(raw) {
+  let str = String(raw || '').trim();
+  if (!str) return '';
+
+  // Decode RFC 2047 MIME encoded-words if present
+  if (/=\?utf-?8\?[bq]\?/i.test(str)) {
+    str = decodeRfc2047(str);
+  }
+
+  // Decode percent-encoded UTF-8 sequences if present
+  if (/%[0-9a-f]{2}/i.test(str)) {
+    try {
+      str = decodeURIComponent(str);
+    } catch {
+      // keep as-is if not valid percent encoding
+    }
+  }
+
+  // Detect Latin-1 mojibake (UTF-8 bytes stored as charCodes 0x00..0xFF, e.g. "Tuyá»ƒn táº­p")
+  const hasHighLatin1 = /[\u0080-\u00FF]/.test(str);
+  const hasNonLatin1 = /[^\u0000-\u00FF]/.test(str);
+  if (hasHighLatin1 && !hasNonLatin1) {
+    try {
+      const bytes = Uint8Array.from([...str], (ch) => ch.charCodeAt(0) & 0xff);
+      const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      if (decoded && decoded !== str) {
+        str = decoded;
+      }
+    } catch {
+      // Not valid UTF-8 byte sequence (e.g. genuine ISO-8859-1 characters) — preserve original
+    }
+  }
+
+  return str.normalize('NFC');
+}
+
+function extractFilenameFromHeadersOrUrl(disposition, targetUrl) {
+  if (disposition) {
+    // 1. Prioritize RFC 5987 filename*=UTF-8'<lang>'<percent-encoded>
+    const rfc5987Match = disposition.match(
+      /filename\*\s*=\s*"?(?:utf-?8)'[^']*'([^";\r\n]+)"?/i
+    );
+    if (rfc5987Match?.[1]) {
+      try {
+        const decoded = decodeURIComponent(rfc5987Match[1].trim())
+          .replace(/["\r\n]/g, '')
+          .trim();
+        if (decoded) return fixUtf8Mojibake(decoded);
+      } catch {
+        // fall through to standard filename=
+      }
+    }
+
+    // 2. Fallback to standard filename="..." or filename=... with Latin-1 mojibake UTF-8 recovery
+    const quotedMatch = disposition.match(/filename\s*=\s*"([^"\r\n]+)"/i);
+    const unquotedMatch = disposition.match(/filename\s*=\s*([^;\r\n]+)/i);
+    const rawName = (quotedMatch?.[1] || unquotedMatch?.[1] || '').replace(/["\r\n]/g, '').trim();
+    if (rawName) {
+      return fixUtf8Mojibake(rawName);
     }
   }
 
   try {
     const pathname = new URL(targetUrl).pathname;
-    const lastSegment = decodeURIComponent(pathname.split('/').filter(Boolean).pop() || '');
-    if (lastSegment && /\.pdf$/i.test(lastSegment)) {
-      return lastSegment;
+    const lastSegment = pathname.split('/').filter(Boolean).pop() || '';
+    const decoded = fixUtf8Mojibake(lastSegment);
+    if (decoded && /\.pdf$/i.test(decoded)) {
+      return decoded;
     }
   } catch {
     // ignore
@@ -333,6 +406,7 @@ export default async function handler(req, res) {
       )}`
     );
     res.setHeader('X-PDF-Filename', encodeURIComponent(filename || 'document.pdf'));
+    res.setHeader('Access-Control-Expose-Headers', 'X-PDF-Filename, Content-Disposition');
     res.setHeader('Cache-Control', 'public, max-age=300');
     return res.status(200).send(buffer);
   } catch (err) {

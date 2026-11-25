@@ -2,26 +2,103 @@ import mammoth from 'mammoth';
 import TurndownService from 'turndown';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { sanitizeImportedMarkdown } from '../utils/katexSanitizer';
-import { convertPdfWithGemini } from './geminiService';
+import { convertPdfWithGemini, ocrPdfPageBatch } from './geminiService';
 
 /**
  * Client-Side Document Import Service
  *  1. importGoogleDoc(url, opts)            — Calls server-side `/api/import-gdoc`
  *  2. convertDocxFileToMarkdown(file, opts) — Converts `.docx` -> HTML (mammoth) -> Markdown (turndown)
- *  3. importPdfFile(file, opts)             — PDF <= 4MB via `/api/gemini` (action: "pdf"),
- *                                             PDF > 4MB via zero-token local `pdfjs-dist` + KaTeX sanitizer
+ *  3. importPdfFile(file, opts)             — PDF <= 4MB via `/api/gemini` (action: "pdf") with
+ *                                             automatic `pdfjs-dist` + Vision OCR fallback;
+ *                                             PDF > 4MB via `pdfjs-dist` across all pages + automatic
+ *                                             Gemini Vision OCR batch fallback for scanned/image-only PDFs
  *  4. normalizePdfUrl(url) & fetchPdfFileFromUrl(url) — Direct `.pdf` & Google Drive PDF URL importer
  *                                             with automatic `/api/fetch-pdf` CORS proxy fallback
+ *  5. fixUtf8FilenameMojibake(str)          — Recovers UTF-8 Vietnamese filenames from RFC 5987 & Latin-1 mojibake
  */
 
 const GDOC_IMPORT_ENDPOINT = '/api/import-gdoc';
 const PDF_PROXY_ENDPOINT = '/api/fetch-pdf';
 export const PDF_GEMINI_MAX_BYTES = 4 * 1024 * 1024; // 4 MB
+const MIN_MEANINGFUL_TEXT_CHARS = 100;
+const MIN_AVG_CHARS_PER_PAGE = 25;
+const OCR_BATCH_SIZE = 3;
+const MAX_OCR_SCANNED_PAGES = 45;
 
 const DRIVE_FILE_D_REGEX =
   /^https?:\/\/drive\.google\.com\/file\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]{10,120})(?:\/|$|\?|#)/i;
 const DRIVE_OPEN_OR_UC_REGEX =
   /^https?:\/\/drive\.google\.com\/(?:open|uc)\?.*?(?:^|[?&])id=([a-zA-Z0-9_-]{10,120})(?:&|$|#)/i;
+
+/**
+ * Decode RFC 5987 / percent-encoded / Latin-1 UTF-8 mojibake strings (e.g. "Tuyá»ƒn táº­p")
+ * cleanly back into normalized NFC UTF-8 Vietnamese text.
+ */
+export function fixUtf8FilenameMojibake(raw) {
+  let str = String(raw || '').trim();
+  if (!str) return '';
+
+  // Decode percent-encoded UTF-8 sequences if present
+  if (/%[0-9a-f]{2}/i.test(str)) {
+    try {
+      str = decodeURIComponent(str);
+    } catch {
+      // Keep original if percent encoding is incomplete
+    }
+  }
+
+  // Detect UTF-8 bytes interpreted as Latin-1 (all char codes <= 0xFF with bytes in 0x80..0xFF)
+  const hasHighLatin1 = /[\u0080-\u00FF]/.test(str);
+  const hasNonLatin1 = /[^\u0000-\u00FF]/.test(str);
+  if (hasHighLatin1 && !hasNonLatin1) {
+    try {
+      const bytes = new Uint8Array([...str].map((ch) => ch.charCodeAt(0) & 0xff));
+      const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      if (decoded && decoded !== str) {
+        str = decoded;
+      }
+    } catch {
+      // Not valid UTF-8 byte sequence — leave original intact
+    }
+  }
+
+  return str.normalize('NFC');
+}
+
+/**
+ * Extract a clean UTF-8 filename from an HTTP Content-Disposition header,
+ * prioritizing RFC 5987 `filename*=UTF-8''...` and recovering Latin-1 mojibake from `filename="..."`.
+ */
+export function parseContentDispositionFilename(disposition) {
+  if (!disposition) return '';
+
+  const rfc5987Match = disposition.match(
+    /filename\*\s*=\s*"?(?:utf-?8)'[^']*'([^";\r\n]+)"?/i
+  );
+  if (rfc5987Match?.[1]) {
+    try {
+      const decoded = decodeURIComponent(rfc5987Match[1].trim())
+        .replace(/["\r\n]/g, '')
+        .trim();
+      if (decoded) return fixUtf8FilenameMojibake(decoded);
+    } catch {
+      // fall through
+    }
+  }
+
+  const quotedMatch = disposition.match(/filename\s*=\s*"([^"\r\n]+)"/i);
+  const unquotedMatch = disposition.match(/filename\s*=\s*([^;\r\n]+)/i);
+  const rawName = (quotedMatch?.[1] || unquotedMatch?.[1] || '').replace(/["\r\n]/g, '').trim();
+  return rawName ? fixUtf8FilenameMojibake(rawName) : '';
+}
+
+export function cleanPdfTitle(rawName, fallback = 'Imported PDF') {
+  const fixed = fixUtf8FilenameMojibake(rawName)
+    .replace(/\.pdf$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return fixed || fallback;
+}
 
 /**
  * Normalize an external PDF URL.
@@ -75,8 +152,9 @@ export function normalizePdfUrl(rawUrl) {
 export function derivePdfTitleFromUrl(rawUrl, fallback = 'Imported PDF') {
   try {
     const parsed = new URL(String(rawUrl || '').trim());
-    const lastSegment = decodeURIComponent(parsed.pathname.split('/').filter(Boolean).pop() || '');
-    const cleaned = lastSegment.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').trim();
+    const lastSegment = parsed.pathname.split('/').filter(Boolean).pop() || '';
+    const decoded = fixUtf8FilenameMojibake(lastSegment);
+    const cleaned = decoded.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim();
     if (cleaned && cleaned.toLowerCase() !== 'view' && cleaned.toLowerCase() !== 'uc') {
       return cleaned.slice(0, 120);
     }
@@ -139,7 +217,13 @@ export async function fetchPdfFileFromUrl(rawUrl) {
             directBlob.type === 'application/pdf'
               ? directBlob
               : new Blob([directBlob], { type: 'application/pdf' });
-          const title = derivePdfTitleFromUrl(info.downloadUrl);
+          const dispName = parseContentDispositionFilename(
+            directRes.headers.get('content-disposition')
+          );
+          const title = cleanPdfTitle(
+            dispName || derivePdfTitleFromUrl(info.downloadUrl),
+            'Imported PDF'
+          );
           const file = new File([pdfBlob], `${title}.pdf`, { type: 'application/pdf' });
           return {
             ...info,
@@ -190,13 +274,15 @@ export async function fetchPdfFileFromUrl(rawUrl) {
   }
 
   const headerFilename = proxyRes.headers.get('x-pdf-filename');
+  const dispFilename = parseContentDispositionFilename(
+    proxyRes.headers.get('content-disposition')
+  );
   let title = '';
   if (headerFilename) {
-    try {
-      title = decodeURIComponent(headerFilename).replace(/\.pdf$/i, '').trim();
-    } catch {
-      title = headerFilename.replace(/\.pdf$/i, '').trim();
-    }
+    title = cleanPdfTitle(headerFilename, '');
+  }
+  if (!title && dispFilename) {
+    title = cleanPdfTitle(dispFilename, '');
   }
   if (!title || title.toLowerCase() === 'document') {
     title = derivePdfTitleFromUrl(info.originalUrl, 'Imported PDF');
@@ -315,10 +401,151 @@ function readFileAsRawBase64(file) {
   });
 }
 
+function measureMeaningfulMarkdownLength(markdown, title = '') {
+  let body = String(markdown || '');
+  if (title) {
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    body = body.replace(new RegExp(`^#\\s+${escaped}\\s*$`, 'im'), '');
+  }
+  body = body
+    .replace(/^##\s+(?:Page|Trang)\s+\d+\s*$/gim, '')
+    .replace(/[\s#*_`>-]+/g, '');
+  return body.length;
+}
+
 /**
- * Zero-token local PDF text extraction via pdfjs-dist + optional KaTeX sanitizer.
+ * Render a single pdfjs-dist page to a crisp JPEG base64 string (capped at 1600px max dim).
  */
-export async function extractPdfTextLocally(file, { sanitizeKatex = true } = {}) {
+async function renderPdfPageToJpegBase64(pdfDoc, pageNum) {
+  if (typeof document === 'undefined') {
+    throw new Error('Canvas rendering is only available in the browser.');
+  }
+  const page = await pdfDoc.getPage(pageNum);
+  const baseViewport = page.getViewport({ scale: 1 });
+  const maxDim = Math.max(baseViewport.width, baseViewport.height) || 1000;
+  const targetScale = Math.min(1.8, Math.max(1.1, 1550 / maxDim));
+  const viewport = page.getViewport({ scale: targetScale });
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(viewport.width));
+  canvas.height = Math.max(1, Math.round(viewport.height));
+  const ctx = canvas.getContext('2d', { alpha: false });
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  await page.render({ canvasContext: ctx, viewport }).promise;
+
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+  // Release canvas memory immediately
+  canvas.width = 0;
+  canvas.height = 0;
+  const commaIdx = dataUrl.indexOf(',');
+  return commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+}
+
+/**
+ * Fallback for scanned / image-only PDFs:
+ * Renders PDF pages to JPEG images and sends them in batches of 3 to `/api/gemini` (`action: 'ocr'`).
+ */
+async function ocrScannedPdfPages(pdfDoc, { baseName, language = 'en', onProgress, sanitizeKatex = true }) {
+  const totalPages = pdfDoc.numPages;
+  const pagesToProcess = Math.min(totalPages, MAX_OCR_SCANNED_PAGES);
+  const transcribedChunks = [];
+  let suggestedTitleFromOcr = '';
+
+  for (let startPage = 1; startPage <= pagesToProcess; startPage += OCR_BATCH_SIZE) {
+    const endPage = Math.min(pagesToProcess, startPage + OCR_BATCH_SIZE - 1);
+    onProgress?.({
+      stage: 'ocr',
+      currentPage: startPage,
+      endPage,
+      totalPages: pagesToProcess,
+    });
+
+    const batchImages = [];
+    for (let p = startPage; p <= endPage; p++) {
+      const data = await renderPdfPageToJpegBase64(pdfDoc, p);
+      batchImages.push({
+        pageNumber: p,
+        mimeType: 'image/jpeg',
+        data,
+      });
+    }
+
+    try {
+      const { markdown, suggestedTitle } = await ocrPdfPageBatch({
+        images: batchImages,
+        language,
+      });
+      if (!suggestedTitleFromOcr && suggestedTitle) {
+        suggestedTitleFromOcr = suggestedTitle;
+      }
+      if (markdown && markdown.trim()) {
+        transcribedChunks.push(markdown.trim());
+      }
+    } catch (batchErr) {
+      // If a multi-page batch exceeds payload size (413), retry page-by-page
+      if (batchImages.length > 1 && batchErr?.status === 413) {
+        for (const singleImg of batchImages) {
+          onProgress?.({
+            stage: 'ocr',
+            currentPage: singleImg.pageNumber,
+            endPage: singleImg.pageNumber,
+            totalPages: pagesToProcess,
+          });
+          const { markdown, suggestedTitle } = await ocrPdfPageBatch({
+            images: [singleImg],
+            language,
+          });
+          if (!suggestedTitleFromOcr && suggestedTitle) {
+            suggestedTitleFromOcr = suggestedTitle;
+          }
+          if (markdown && markdown.trim()) {
+            transcribedChunks.push(markdown.trim());
+          }
+        }
+      } else {
+        throw batchErr;
+      }
+    }
+  }
+
+  let combined = transcribedChunks.join('\n\n').trim();
+  if (!combined || measureMeaningfulMarkdownLength(combined, baseName) < 20) {
+    const err = new Error(
+      language === 'vi'
+        ? 'Không thể trích xuất nội dung từ tệp PDF này (tệp có thể trống hoặc bị khóa).'
+        : 'Could not extract any readable content from this PDF (it may be blank or protected).'
+    );
+    err.code = 'EMPTY_PDF_CONTENT';
+    throw err;
+  }
+
+  if (totalPages > MAX_OCR_SCANNED_PAGES) {
+    const truncationNote =
+      language === 'vi'
+        ? `\n\n---\n> *Lưu ý: Tệp PDF quét có ${totalPages} trang; đã trích xuất ${MAX_OCR_SCANNED_PAGES} trang đầu bằng OCR.*`
+        : `\n\n---\n> *Note: This scanned PDF has ${totalPages} pages; the first ${MAX_OCR_SCANNED_PAGES} pages were transcribed via OCR.*`;
+    combined += truncationNote;
+  }
+
+  const content = sanitizeKatex ? sanitizeImportedMarkdown(combined) : combined;
+  return {
+    title: cleanPdfTitle(baseName, suggestedTitleFromOcr || 'Imported PDF'),
+    content,
+    method: 'ocr-fallback',
+  };
+}
+
+/**
+ * Full-document PDF text extraction via pdfjs-dist across all pages, preserving headings,
+ * line breaks, and paragraphs — with automatic Gemini Vision OCR fallback when a PDF is
+ * scanned / image-only / yields < 100 meaningful characters.
+ */
+export async function extractPdfTextLocally(
+  file,
+  { sanitizeKatex = true, onProgress, language = 'en', allowOcrFallback = true } = {}
+) {
   const pdfjsLib = await import('pdfjs-dist');
   pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -326,46 +553,106 @@ export async function extractPdfTextLocally(file, { sanitizeKatex = true } = {})
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
   const pdfDoc = await loadingTask.promise;
 
+  const totalPages = pdfDoc.numPages;
   const pageBlocks = [];
-  for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+  let totalMeaningfulChars = 0;
+
+  for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+    onProgress?.({
+      stage: 'local',
+      currentPage: pageNum,
+      totalPages,
+    });
+
     const page = await pdfDoc.getPage(pageNum);
     const textContent = await page.getTextContent();
+
+    // Estimate median body font height on this page for heading detection
+    const heights = textContent.items
+      .map((item) =>
+        Math.abs(
+          Number(item.height) || (Array.isArray(item.transform) ? item.transform[0] : 0) || 0
+        )
+      )
+      .filter((h) => h > 2)
+      .sort((a, b) => a - b);
+    const medianHeight = heights.length > 0 ? heights[Math.floor(heights.length / 2)] : 11;
+
     const lines = [];
     let currentLine = '';
+    let currentLineMaxHeight = 0;
     let lastY = null;
+
+    const flushLine = (addParagraphBreak = false) => {
+      const trimmed = currentLine.replace(/\s+/g, ' ').trim();
+      if (trimmed) {
+        const isHeading =
+          currentLineMaxHeight >= medianHeight * 1.28 &&
+          trimmed.length <= 120 &&
+          !/^[•\-*]\s/.test(trimmed);
+        lines.push(isHeading ? `### ${trimmed}` : trimmed);
+        if (addParagraphBreak) lines.push('');
+      }
+      currentLine = '';
+      currentLineMaxHeight = 0;
+    };
 
     for (const item of textContent.items) {
       if (typeof item.str !== 'string') continue;
       const y = Array.isArray(item.transform) ? item.transform[5] : null;
-      const yChanged = lastY !== null && y !== null && Math.abs(y - lastY) > 4;
+      const itemHeight = Math.abs(
+        Number(item.height) || (Array.isArray(item.transform) ? item.transform[0] : 0) || medianHeight
+      );
+      const yDelta = lastY !== null && y !== null ? Math.abs(y - lastY) : 0;
 
-      if (yChanged && currentLine.trim()) {
-        lines.push(currentLine.trim());
-        currentLine = '';
+      if (lastY !== null && y !== null && yDelta > Math.max(4, medianHeight * 0.45)) {
+        const isParagraphGap = yDelta > Math.max(16, medianHeight * 1.65);
+        flushLine(isParagraphGap);
       }
 
       currentLine += item.str;
+      if (itemHeight > currentLineMaxHeight) currentLineMaxHeight = itemHeight;
+
       if (item.hasEOL) {
-        if (currentLine.trim()) lines.push(currentLine.trim());
-        currentLine = '';
+        flushLine(false);
       } else if (item.str && !item.str.endsWith(' ')) {
         currentLine += ' ';
       }
 
       if (y !== null) lastY = y;
     }
+    flushLine(false);
 
-    if (currentLine.trim()) {
-      lines.push(currentLine.trim());
-    }
-
-    const pageText = lines.join('\n').trim();
+    const pageText = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
     if (pageText) {
-      pageBlocks.push(pdfDoc.numPages > 1 ? `## Page ${pageNum}\n\n${pageText}` : pageText);
+      totalMeaningfulChars += pageText.replace(/\s+/g, '').length;
+      pageBlocks.push(totalPages > 1 ? `## Page ${pageNum}\n\n${pageText}` : pageText);
     }
   }
 
-  const baseName = file.name.replace(/\.pdf$/i, '').trim() || 'Imported PDF';
+  const baseName = cleanPdfTitle(file.name, 'Imported PDF');
+  const isLikelyScannedOrEmpty =
+    totalMeaningfulChars < MIN_MEANINGFUL_TEXT_CHARS ||
+    (totalPages >= 3 && totalMeaningfulChars / totalPages < MIN_AVG_CHARS_PER_PAGE);
+
+  if (isLikelyScannedOrEmpty) {
+    if (allowOcrFallback) {
+      return ocrScannedPdfPages(pdfDoc, {
+        baseName,
+        language,
+        onProgress,
+        sanitizeKatex,
+      });
+    }
+    const err = new Error(
+      language === 'vi'
+        ? 'Tệp PDF này là bản scan/ảnh không có lớp chữ. Không thể trích xuất văn bản.'
+        : 'This PDF appears to be scanned/image-only with no selectable text layer.'
+    );
+    err.code = 'EMPTY_PDF_CONTENT';
+    throw err;
+  }
+
   const rawCombined = `# ${baseName}\n\n${pageBlocks.join('\n\n')}`;
   const content = sanitizeKatex ? sanitizeImportedMarkdown(rawCombined) : rawCombined;
 
@@ -378,38 +665,67 @@ export async function extractPdfTextLocally(file, { sanitizeKatex = true } = {})
 
 /**
  * Unified PDF importer:
- *  - <= 4MB: sends to `/api/gemini` (`action: "pdf"`) for high-accuracy Markdown + KaTeX
- *  - > 4MB (or if serverless returns 413 / forceLocal): falls back to zero-token local `pdfjs-dist` extraction
+ *  - <= 4MB: sends to `/api/gemini` (`action: "pdf"`) for high-accuracy Markdown + KaTeX,
+ *    with automatic fallback to `pdfjs-dist` + Vision OCR if response is empty or 413.
+ *  - > 4MB (or forceLocal): extracts text across all pages via `pdfjs-dist` with live
+ *    page progress, and automatically triggers batched Gemini Vision OCR for scanned/image-only PDFs.
+ *  - Never returns an empty body with only `# Title`.
  */
 export async function importPdfFile(
   file,
   { language = 'en', onProgress, sanitizeKatex = true, forceLocal = false } = {}
 ) {
+  const cleanName = cleanPdfTitle(file.name, 'Imported PDF');
+
   if (!forceLocal && file.size <= PDF_GEMINI_MAX_BYTES) {
-    onProgress?.('ai');
+    onProgress?.({ stage: 'ai' });
     try {
       const base64Data = await readFileAsRawBase64(file);
       const { markdown, suggestedTitle } = await convertPdfWithGemini({
         base64Data,
-        fileName: file.name,
+        fileName: `${cleanName}.pdf`,
         language,
       });
       const content = sanitizeKatex ? sanitizeImportedMarkdown(markdown) : markdown;
-      return {
-        title: suggestedTitle || file.name.replace(/\.pdf$/i, '').trim() || 'Imported PDF',
-        content,
-        method: 'gemini',
-      };
-    } catch (err) {
-      // If payload hits serverless 413 limit or AI proxy is unavailable, transparently fall back to local pdfjs-dist
-      if (err?.status === 413) {
-        onProgress?.('local');
-        return extractPdfTextLocally(file, { sanitizeKatex });
+      if (measureMeaningfulMarkdownLength(content, cleanName) >= 30) {
+        return {
+          title: cleanPdfTitle(suggestedTitle || cleanName, 'Imported PDF'),
+          content,
+          method: 'gemini',
+        };
       }
-      throw err;
+      // If Gemini returned empty/near-empty output, fall through to pdfjs-dist + OCR pipeline
+    } catch (err) {
+      // On 413 or transient error, fall back to local pdfjs-dist + Vision OCR batch pipeline
+      if (err?.code === 'MISSING_API_KEY') {
+        // Still try local text extraction first (works zero-token for text-layer PDFs!)
+        return extractPdfTextLocally(file, {
+          sanitizeKatex,
+          onProgress,
+          language,
+          allowOcrFallback: false,
+        });
+      }
+      if (err?.status !== 413 && err?.status !== 502 && err?.status !== 504) {
+        // Try local text extraction as resilient fallback before giving up
+        try {
+          return await extractPdfTextLocally(file, {
+            sanitizeKatex,
+            onProgress,
+            language,
+            allowOcrFallback: false,
+          });
+        } catch {
+          throw err;
+        }
+      }
     }
   }
 
-  onProgress?.('local');
-  return extractPdfTextLocally(file, { sanitizeKatex });
+  return extractPdfTextLocally(file, {
+    sanitizeKatex,
+    onProgress,
+    language,
+    allowOcrFallback: true,
+  });
 }

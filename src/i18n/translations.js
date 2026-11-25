@@ -160,9 +160,15 @@ export const translations = {
     docxImportSuccess: 'Word (.docx) document imported!',
     docxImportError: 'Could not read this .docx file. Please make sure it is a valid Word document.',
     pdfConvertingAi: 'Converting PDF to Markdown + KaTeX...',
-    pdfExtractingLocal: 'Large PDF (>4MB): extracting text locally...',
+    pdfExtractingLocal: 'Extracting text across all PDF pages...',
+    pdfExtractingPageProgress: (current, total) => `Extracting page ${current}/${total}...`,
+    pdfOcrPageProgress: (start, end, total) =>
+      start === end
+        ? `Scanned PDF detected — OCR scanning page ${start}/${total}...`
+        : `Scanned PDF detected — OCR scanning pages ${start}–${end}/${total}...`,
     pdfImportSuccessAi: 'PDF converted to Markdown + KaTeX!',
-    pdfImportSuccessLocal: 'Large PDF extracted locally & formatted!',
+    pdfImportSuccessLocal: 'PDF extracted & formatted to Markdown!',
+    pdfImportSuccessOcr: 'Scanned PDF transcribed with Gemini Vision OCR!',
     pdfImportError: 'Could not convert this PDF file. Please try another file.',
     dropFilesOverlayTitle: 'Drop PDF, DOCX, Markdown, or TXT to import',
     dropFilesOverlayHint: 'PDFs ≤ 4MB use AI Markdown + KaTeX; larger PDFs extract locally',
@@ -472,9 +478,15 @@ export const translations = {
     docxImportSuccess: 'Đã nhập tệp Word (.docx) thành công!',
     docxImportError: 'Không thể đọc tệp .docx này. Vui lòng kiểm tra tệp có hợp lệ không.',
     pdfConvertingAi: 'Đang chuyển đổi PDF sang Markdown + KaTeX...',
-    pdfExtractingLocal: 'Tệp PDF lớn (>4MB): đang trích xuất cục bộ...',
+    pdfExtractingLocal: 'Đang trích xuất văn bản trên tất cả các trang PDF...',
+    pdfExtractingPageProgress: (current, total) => `Đang trích xuất trang ${current}/${total}...`,
+    pdfOcrPageProgress: (start, end, total) =>
+      start === end
+        ? `Phát hiện PDF dạng ảnh/scan — đang quét OCR trang ${start}/${total}...`
+        : `Phát hiện PDF dạng ảnh/scan — đang quét OCR trang ${start}–${end}/${total}...`,
     pdfImportSuccessAi: 'Đã chuyển đổi PDF sang Markdown + KaTeX!',
-    pdfImportSuccessLocal: 'Đã trích xuất tệp PDF lớn cục bộ!',
+    pdfImportSuccessLocal: 'Đã trích xuất & định dạng PDF sang Markdown!',
+    pdfImportSuccessOcr: 'Đã quét OCR tệp PDF dạng ảnh bằng Gemini Vision!',
     pdfImportError: 'Không thể chuyển đổi tệp PDF này. Vui lòng thử tệp khác.',
     dropFilesOverlayTitle: 'Thả tệp PDF, DOCX, Markdown hoặc TXT để nhập',
     dropFilesOverlayHint: 'PDF ≤ 4MB dùng AI Markdown + KaTeX; tệp lớn hơn trích xuất cục bộ',

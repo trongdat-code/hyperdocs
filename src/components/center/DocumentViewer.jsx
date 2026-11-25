@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import {
   fetchPdfFileFromUrl,
+  fixUtf8FilenameMojibake,
   importPdfFile,
   pdfDataUrlToBlob,
 } from '../../services/importService';
@@ -194,6 +195,7 @@ export default function DocumentViewer({
   const [pdfViewerLoading, setPdfViewerLoading] = useState(false);
   const [pdfViewerError, setPdfViewerError] = useState('');
   const [isConvertingPdfToMd, setIsConvertingPdfToMd] = useState(false);
+  const [convertProgressText, setConvertProgressText] = useState('');
 
   // Toolbar dropdown menus ('color' | 'highlight' | null)
   const [openMenu, setOpenMenu] = useState(null);
@@ -316,6 +318,7 @@ export default function DocumentViewer({
   const handleConvertEmbeddedPdfToMarkdown = async () => {
     if (!isEmbeddedPdf || isConvertingPdfToMd) return;
     setIsConvertingPdfToMd(true);
+    setConvertProgressText(t.pdfConvertingShort);
     try {
       let fileToExtract = null;
       if (doc.pdfDataUrl) {
@@ -324,6 +327,7 @@ export default function DocumentViewer({
           type: 'application/pdf',
         });
       } else if (doc.pdfOriginalUrl || doc.pdfUrl) {
+        setConvertProgressText(t.pdfFetchingUrl);
         const fetched = await fetchPdfFileFromUrl(doc.pdfOriginalUrl || doc.pdfUrl);
         fileToExtract = fetched.file;
       }
@@ -336,6 +340,24 @@ export default function DocumentViewer({
       const { content, method } = await importPdfFile(fileToExtract, {
         language: lang,
         sanitizeKatex: true,
+        onProgress: (progress) => {
+          if (!progress) return;
+          if (progress.stage === 'ai') {
+            setConvertProgressText(t.pdfConvertingShort);
+          } else if (progress.stage === 'ocr') {
+            setConvertProgressText(
+              t.pdfOcrPageProgress(
+                progress.currentPage,
+                progress.endPage || progress.currentPage,
+                progress.totalPages
+              )
+            );
+          } else if (progress.stage === 'local' && progress.totalPages) {
+            setConvertProgressText(
+              t.pdfExtractingPageProgress(progress.currentPage, progress.totalPages)
+            );
+          }
+        },
       });
 
       const { docType: _removedDocType, pdfDataUrl: _removedData, ...restDoc } = doc;
@@ -346,7 +368,11 @@ export default function DocumentViewer({
       });
       setZoom(100);
       onNotify(
-        method === 'gemini' ? t.pdfImportSuccessAi : t.pdfImportSuccessLocal,
+        method === 'ocr-fallback'
+          ? t.pdfImportSuccessOcr
+          : method === 'gemini'
+            ? t.pdfImportSuccessAi
+            : t.pdfImportSuccessLocal,
         'success'
       );
     } catch (err) {
@@ -359,6 +385,7 @@ export default function DocumentViewer({
       }
     } finally {
       setIsConvertingPdfToMd(false);
+      setConvertProgressText('');
     }
   };
 
@@ -601,9 +628,19 @@ export default function DocumentViewer({
 
   const handleExportMd = () => {
     const content = isEditing ? draftContent : doc.content || '';
-    const title = (isEditing ? draftTitle : doc.title || 'document').trim() || 'document';
-    const safeFilename = title.replace(/[^a-zA-Z0-9\u00C0-\u024F\u1E00-\u1EFF_-]+/g, '-').slice(0, 60);
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const rawTitle = (isEditing ? draftTitle : doc.title || 'document').trim() || 'document';
+    // Preserve clean UTF-8 Vietnamese characters while removing filesystem-unsafe characters
+    const safeFilename = fixUtf8FilenameMojibake(rawTitle)
+      .normalize('NFC')
+      .replace(/\.md$/i, '')
+      .replace(/[<>:"/\\|?*\u0000-\u001F]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^\.+|\.+$/g, '')
+      .slice(0, 100);
+
+    // Prepend UTF-8 BOM (\uFEFF) so Windows Notepad & Word always decode Vietnamese accurately
+    const blob = new Blob(['\uFEFF' + content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -805,7 +842,9 @@ export default function DocumentViewer({
                   <Sparkles className="w-3.5 h-3.5" />
                 )}
                 <span>
-                  {isConvertingPdfToMd ? t.pdfConvertingShort : t.pdfConvertToMarkdown}
+                  {isConvertingPdfToMd
+                    ? convertProgressText || t.pdfConvertingShort
+                    : t.pdfConvertToMarkdown}
                 </span>
               </button>
 
