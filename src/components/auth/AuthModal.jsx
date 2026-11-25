@@ -121,7 +121,7 @@ export default function AuthModal({ isOpen, onClose, t }) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4 no-print"
+      className="hd-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] p-4 no-print"
       onClick={() => !busy && onClose()}
     >
       <div
@@ -129,19 +129,19 @@ export default function AuthModal({ isOpen, onClose, t }) {
         aria-modal="true"
         aria-label={t.authModalTitle}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-2xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E5E5E3] dark:border-[#2F2F2F] shadow-2xl p-6 space-y-5"
+        className="hd-modal-in w-full max-w-md rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#2F2F2F] shadow-2xl p-6 space-y-4"
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-lg bg-indigo-500/12 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
               <Cloud className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-semibold text-[17px] text-[#2F2F2F] dark:text-[#E8E8E6]">
+              <h2 className="font-semibold text-[16px] text-[#262624] dark:text-[#ECECEA]">
                 {t.authModalTitle}
               </h2>
-              <p className="text-[13px] text-[#787774] dark:text-[#9B9A97]">
+              <p className="text-[13px] text-[#6B6A66] dark:text-[#9B9A97] mt-0.5">
                 {t.authModalSubtitle}
               </p>
             </div>
@@ -151,7 +151,7 @@ export default function AuthModal({ isOpen, onClose, t }) {
             disabled={busy}
             onClick={onClose}
             aria-label={t.closeDrawer}
-            className="p-1.5 rounded-lg text-[#787774] hover:bg-[#F1F1EF] dark:hover:bg-[#323232]"
+            className="h-9 w-9 inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] transition-colors duration-150 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -159,7 +159,7 @@ export default function AuthModal({ isOpen, onClose, t }) {
 
         {/* Unconfigured Supabase Fallback Notice */}
         {!isSupabaseConfigured && (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 flex items-start gap-2.5 text-[13px] text-amber-800 dark:text-amber-300">
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 flex items-start gap-2.5 text-[13px] text-amber-800 dark:text-amber-300">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span className="leading-snug">{t.supabaseNotConfigured}</span>
           </div>
@@ -170,7 +170,7 @@ export default function AuthModal({ isOpen, onClose, t }) {
           type="button"
           disabled={busy || !isSupabaseConfigured}
           onClick={handleGoogleSignIn}
-          className="w-full min-h-[44px] px-4 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#1F1F1F] hover:bg-[#F7F7F5] dark:hover:bg-[#2E2E2E] disabled:opacity-50 text-[#2F2F2F] dark:text-[#E8E8E6] text-[14px] font-semibold inline-flex items-center justify-center gap-2.5 shadow-2xs transition"
+          className="w-full min-h-[44px] px-4 rounded-lg border border-[#E8E8E5] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#2E2E2E] disabled:opacity-50 text-[#262624] dark:text-[#ECECEA] text-[14px] font-semibold inline-flex items-center justify-center gap-2.5 transition-colors duration-150 cursor-pointer"
         >
           {loadingOAuth ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -182,15 +182,15 @@ export default function AuthModal({ isOpen, onClose, t }) {
 
         {/* Clean Hairline Divider ("or") */}
         <div className="relative flex items-center">
-          <div className="flex-1 border-t border-[#E5E5E3] dark:border-[#343434]" />
-          <span className="px-3 text-[12px] font-medium uppercase tracking-wider text-[#9B9A97]">
+          <div className="flex-1 border-t border-[#E8E8E5] dark:border-[#2F2F2F]" />
+          <span className="px-3 text-[12px] font-medium uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97]">
             {t.authOrDivider}
           </span>
-          <div className="flex-1 border-t border-[#E5E5E3] dark:border-[#343434]" />
+          <div className="flex-1 border-t border-[#E8E8E5] dark:border-[#2F2F2F]" />
         </div>
 
         {/* Sign In / Create Account Mode Switcher */}
-        <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-[#F1F1EF] dark:bg-[#191919]">
+        <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[#F3F3F1] dark:bg-[#191919]">
           <button
             type="button"
             onClick={() => {
@@ -198,10 +198,10 @@ export default function AuthModal({ isOpen, onClose, t }) {
               setErrorMsg('');
               setInfoMsg('');
             }}
-            className={`min-h-[36px] rounded-lg text-[13px] font-semibold transition ${
+            className={`min-h-[36px] rounded-lg text-[13px] font-semibold transition-colors duration-150 cursor-pointer ${
               authTab === 'signin'
-                ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#2F2F2F] dark:text-[#E8E8E6] shadow-2xs'
-                : 'text-[#787774] dark:text-[#9B9A97]'
+                ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#262624] dark:text-[#ECECEA] shadow-2xs'
+                : 'text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-[#ECECEA]'
             }`}
           >
             {t.signInTab}
@@ -213,10 +213,10 @@ export default function AuthModal({ isOpen, onClose, t }) {
               setErrorMsg('');
               setInfoMsg('');
             }}
-            className={`min-h-[36px] rounded-lg text-[13px] font-semibold transition ${
+            className={`min-h-[36px] rounded-lg text-[13px] font-semibold transition-colors duration-150 cursor-pointer ${
               authTab === 'signup'
-                ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#2F2F2F] dark:text-[#E8E8E6] shadow-2xs'
-                : 'text-[#787774] dark:text-[#9B9A97]'
+                ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#262624] dark:text-[#ECECEA] shadow-2xs'
+                : 'text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-[#ECECEA]'
             }`}
           >
             {t.createAccountTab}
@@ -225,14 +225,14 @@ export default function AuthModal({ isOpen, onClose, t }) {
 
         {/* Feedback Banners */}
         {errorMsg && (
-          <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 flex items-start gap-2 text-[13px] text-rose-700 dark:text-rose-300">
+          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 flex items-start gap-2 text-[13px] text-rose-700 dark:text-rose-300">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span className="leading-snug">{errorMsg}</span>
           </div>
         )}
 
         {infoMsg && (
-          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 flex items-start gap-2 text-[13px] text-emerald-700 dark:text-emerald-300">
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 flex items-start gap-2 text-[13px] text-emerald-700 dark:text-emerald-300">
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
             <span className="leading-snug">{infoMsg}</span>
           </div>
@@ -241,12 +241,13 @@ export default function AuthModal({ isOpen, onClose, t }) {
         {/* Email + Password Form */}
         <form onSubmit={handleEmailSubmit} className="space-y-3.5">
           <div>
-            <label className="block text-[13px] font-medium text-[#787774] dark:text-[#9B9A97] mb-1">
+            <label htmlFor="hd-auth-email" className="block text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97] mb-1">
               {t.emailLabel}
             </label>
             <div className="relative">
-              <Mail className="w-4 h-4 text-[#9B9A97] absolute left-3 top-1/2 -translate-y-1/2" />
+              <Mail className="w-4 h-4 text-[#6B6A66] dark:text-[#9B9A97] absolute left-3 top-1/2 -translate-y-1/2" />
               <input
+                id="hd-auth-email"
                 type="email"
                 required
                 autoComplete="email"
@@ -254,18 +255,19 @@ export default function AuthModal({ isOpen, onClose, t }) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={t.emailPlaceholder}
-                className="w-full min-h-[42px] pl-9 pr-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[14px] text-[#2F2F2F] dark:text-[#E8E8E6] focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                className="w-full min-h-[42px] pl-9 pr-3 rounded-lg border border-[#E8E8E5] dark:border-[#3A3A3A] bg-[#FBFBFA] dark:bg-[#191919] text-[14px] text-[#262624] dark:text-[#ECECEA] focus:bg-[#FFFFFF] dark:focus:bg-[#191919] focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-[13px] font-medium text-[#787774] dark:text-[#9B9A97] mb-1">
+            <label htmlFor="hd-auth-password" className="block text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97] mb-1">
               {t.passwordLabel}
             </label>
             <div className="relative">
-              <Lock className="w-4 h-4 text-[#9B9A97] absolute left-3 top-1/2 -translate-y-1/2" />
+              <Lock className="w-4 h-4 text-[#6B6A66] dark:text-[#9B9A97] absolute left-3 top-1/2 -translate-y-1/2" />
               <input
+                id="hd-auth-password"
                 type="password"
                 required
                 minLength={6}
@@ -274,7 +276,7 @@ export default function AuthModal({ isOpen, onClose, t }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={t.passwordPlaceholder}
-                className="w-full min-h-[42px] pl-9 pr-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[14px] text-[#2F2F2F] dark:text-[#E8E8E6] focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                className="w-full min-h-[42px] pl-9 pr-3 rounded-lg border border-[#E8E8E5] dark:border-[#3A3A3A] bg-[#FBFBFA] dark:bg-[#191919] text-[14px] text-[#262624] dark:text-[#ECECEA] focus:bg-[#FFFFFF] dark:focus:bg-[#191919] focus:outline-none focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-50"
               />
             </div>
           </div>
@@ -282,7 +284,7 @@ export default function AuthModal({ isOpen, onClose, t }) {
           <button
             type="submit"
             disabled={busy || !isSupabaseConfigured}
-            className="w-full min-h-[44px] rounded-xl bg-[#2F2F2F] hover:bg-[#191919] dark:bg-[#E8E8E6] dark:hover:bg-white disabled:opacity-50 text-white dark:text-[#191919] text-[14px] font-semibold inline-flex items-center justify-center gap-2 transition"
+            className="w-full min-h-[44px] rounded-lg bg-[#262624] hover:bg-[#191919] dark:bg-[#ECECEA] dark:hover:bg-white disabled:opacity-50 text-white dark:text-[#191919] text-[14px] font-semibold inline-flex items-center justify-center gap-2 transition-colors duration-150 cursor-pointer"
           >
             {loadingEmail && <Loader2 className="w-4 h-4 animate-spin" />}
             <span>{authTab === 'signin' ? t.signInAction : t.createAccountAction}</span>

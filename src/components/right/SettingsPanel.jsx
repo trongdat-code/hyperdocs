@@ -57,7 +57,7 @@ export default function SettingsPanel({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:justify-start bg-black/35 backdrop-blur-[2px] p-4 sm:pl-6 no-print"
+      className="hd-fade-in fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:justify-start bg-black/35 backdrop-blur-[2px] p-4 sm:pl-6 no-print"
       onClick={onClose}
     >
       <div
@@ -65,13 +65,13 @@ export default function SettingsPanel({
         aria-modal="true"
         aria-label={t.settingsTitle}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E5E5E3] dark:border-[#2F2F2F] shadow-2xl p-5 space-y-4"
+        className="hd-modal-in w-full max-w-sm rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#2F2F2F] shadow-2xl p-5 space-y-4"
       >
         {/* Header */}
-        <div className="flex items-center justify-between pb-2.5 border-b border-[#E5E5E3] dark:border-[#2F2F2F]">
+        <div className="flex items-center justify-between pb-2.5 border-b border-[#E8E8E5] dark:border-[#2F2F2F]">
           <div className="flex items-center gap-2">
-            <Settings className="w-4 h-4 text-[#787774] dark:text-[#9B9A97]" />
-            <h2 className="font-semibold text-[16px] text-[#2F2F2F] dark:text-[#E8E8E6]">
+            <Settings className="w-4 h-4 text-[#6B6A66] dark:text-[#9B9A97]" />
+            <h2 className="font-semibold text-[16px] text-[#262624] dark:text-[#ECECEA]">
               {t.settingsTitle}
             </h2>
           </div>
@@ -79,7 +79,7 @@ export default function SettingsPanel({
             type="button"
             onClick={onClose}
             aria-label={t.closeDrawer}
-            className="touch-target inline-flex items-center justify-center rounded-lg text-[#787774] hover:bg-[#F1F1EF] dark:hover:bg-[#323232]"
+            className="h-9 w-9 inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] transition-colors duration-150 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -87,17 +87,17 @@ export default function SettingsPanel({
 
         {/* Theme Switcher */}
         <div className="space-y-1.5">
-          <label className="text-[13px] font-medium text-[#787774] dark:text-[#9B9A97]">
+          <label className="text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
             {t.themeLabel}
           </label>
-          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[#F1F1EF] dark:bg-[#191919]">
+          <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[#F3F3F1] dark:bg-[#191919]">
             <button
               type="button"
               onClick={() => onUpdateSettings({ theme: 'light' })}
-              className={`min-h-[38px] rounded-lg text-[14px] font-medium inline-flex items-center justify-center gap-1.5 transition ${
+              className={`min-h-[38px] rounded-lg text-[14px] font-medium inline-flex items-center justify-center gap-1.5 transition-colors duration-150 cursor-pointer ${
                 settings.theme === 'light'
-                  ? 'bg-[#FFFFFF] text-[#2F2F2F] shadow-xs'
-                  : 'text-[#787774] dark:text-[#9B9A97] hover:text-[#2F2F2F] dark:hover:text-white'
+                  ? 'bg-[#FFFFFF] text-[#262624] shadow-2xs'
+                  : 'text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white'
               }`}
             >
               <Sun className="w-4 h-4 text-amber-500" />
@@ -106,10 +106,10 @@ export default function SettingsPanel({
             <button
               type="button"
               onClick={() => onUpdateSettings({ theme: 'dark' })}
-              className={`min-h-[38px] rounded-lg text-[14px] font-medium inline-flex items-center justify-center gap-1.5 transition ${
+              className={`min-h-[38px] rounded-lg text-[14px] font-medium inline-flex items-center justify-center gap-1.5 transition-colors duration-150 cursor-pointer ${
                 settings.theme === 'dark'
-                  ? 'bg-[#262626] text-[#E8E8E6] shadow-xs border border-[#3A3A3A]'
-                  : 'text-[#787774] dark:text-[#9B9A97] hover:text-[#2F2F2F] dark:hover:text-white'
+                  ? 'bg-[#262626] text-[#ECECEA] shadow-2xs border border-[#3A3A3A]'
+                  : 'text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white'
               }`}
             >
               <Moon className="w-4 h-4 text-indigo-400" />
@@ -120,18 +120,18 @@ export default function SettingsPanel({
 
         {/* Language Switcher */}
         <div className="space-y-1.5">
-          <label className="flex items-center gap-1.5 text-[13px] font-medium text-[#787774] dark:text-[#9B9A97]">
+          <label className="flex items-center gap-1.5 text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
             <Languages className="w-3.5 h-3.5" />
             <span>{t.languageLabel}</span>
           </label>
-          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[#F1F1EF] dark:bg-[#191919]">
+          <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[#F3F3F1] dark:bg-[#191919]">
             <button
               type="button"
               onClick={() => onUpdateSettings({ language: 'en' })}
-              className={`min-h-[38px] rounded-lg text-[14px] font-medium transition ${
+              className={`min-h-[38px] rounded-lg text-[14px] font-medium transition-colors duration-150 cursor-pointer ${
                 settings.language === 'en'
-                  ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#2F2F2F] dark:text-[#E8E8E6] shadow-xs'
-                  : 'text-[#787774] dark:text-[#9B9A97]'
+                  ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#262624] dark:text-[#ECECEA] shadow-2xs'
+                  : 'text-[#6B6A66] dark:text-[#9B9A97]'
               }`}
             >
               EN · {t.english}
@@ -139,10 +139,10 @@ export default function SettingsPanel({
             <button
               type="button"
               onClick={() => onUpdateSettings({ language: 'vi' })}
-              className={`min-h-[38px] rounded-lg text-[14px] font-medium transition ${
+              className={`min-h-[38px] rounded-lg text-[14px] font-medium transition-colors duration-150 cursor-pointer ${
                 settings.language === 'vi'
-                  ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#2F2F2F] dark:text-[#E8E8E6] shadow-xs'
-                  : 'text-[#787774] dark:text-[#9B9A97]'
+                  ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#262624] dark:text-[#ECECEA] shadow-2xs'
+                  : 'text-[#6B6A66] dark:text-[#9B9A97]'
               }`}
             >
               VI · {t.vietnamese}
@@ -152,18 +152,18 @@ export default function SettingsPanel({
 
         {/* Layout Density */}
         <div className="space-y-1.5">
-          <label className="flex items-center gap-1.5 text-[13px] font-medium text-[#787774] dark:text-[#9B9A97]">
+          <label className="flex items-center gap-1.5 text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
             <LayoutGrid className="w-3.5 h-3.5" />
             <span>{t.densityLabel}</span>
           </label>
-          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[#F1F1EF] dark:bg-[#191919]">
+          <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[#F3F3F1] dark:bg-[#191919]">
             <button
               type="button"
               onClick={() => onUpdateSettings({ density: 'comfortable' })}
-              className={`min-h-[36px] rounded-lg text-[13px] font-medium transition ${
+              className={`min-h-[36px] rounded-lg text-[13px] font-medium transition-colors duration-150 cursor-pointer ${
                 settings.density === 'comfortable'
-                  ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#2F2F2F] dark:text-[#E8E8E6] shadow-xs'
-                  : 'text-[#787774] dark:text-[#9B9A97]'
+                  ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#262624] dark:text-[#ECECEA] shadow-2xs'
+                  : 'text-[#6B6A66] dark:text-[#9B9A97]'
               }`}
             >
               {t.comfortable}
@@ -171,10 +171,10 @@ export default function SettingsPanel({
             <button
               type="button"
               onClick={() => onUpdateSettings({ density: 'compact' })}
-              className={`min-h-[36px] rounded-lg text-[13px] font-medium transition ${
+              className={`min-h-[36px] rounded-lg text-[13px] font-medium transition-colors duration-150 cursor-pointer ${
                 settings.density === 'compact'
-                  ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#2F2F2F] dark:text-[#E8E8E6] shadow-xs'
-                  : 'text-[#787774] dark:text-[#9B9A97]'
+                  ? 'bg-[#FFFFFF] dark:bg-[#262626] text-[#262624] dark:text-[#ECECEA] shadow-2xs'
+                  : 'text-[#6B6A66] dark:text-[#9B9A97]'
               }`}
             >
               {t.compact}
@@ -184,10 +184,10 @@ export default function SettingsPanel({
 
         {/* Server Proxy Status */}
         <div
-          className={`rounded-xl border px-3 py-2.5 flex items-center gap-2 text-[13px] ${
+          className={`rounded-lg border px-3 py-2.5 flex items-center gap-2 text-[13px] ${
             proxyStatus.configured
               ? 'border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300'
-              : 'border-[#E5E5E3] dark:border-[#343434] bg-[#F7F7F5] dark:bg-[#1E1E1E] text-[#555552] dark:text-[#B5B4B0]'
+              : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] text-[#4F4E4B] dark:text-[#B5B4B0]'
           }`}
         >
           {proxyStatus.configured ? (
@@ -201,15 +201,15 @@ export default function SettingsPanel({
         </div>
 
         {/* JSON Backup / Restore */}
-        <div className="space-y-1.5 pt-2 border-t border-[#E5E5E3] dark:border-[#2F2F2F]">
-          <label className="text-[13px] font-medium text-[#787774] dark:text-[#9B9A97]">
+        <div className="space-y-1.5 pt-2 border-t border-[#E8E8E5] dark:border-[#2F2F2F]">
+          <label className="text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
             {t.dataBackupLabel}
           </label>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={onExportBackup}
-              className="min-h-[40px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#F7F7F5] dark:bg-[#1F1F1F] hover:bg-[#F1F1EF] dark:hover:bg-[#323232] text-[#2F2F2F] dark:text-[#E8E8E6] text-[13px] font-medium inline-flex items-center justify-center gap-1.5 transition"
+              className="min-h-[40px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium inline-flex items-center justify-center gap-1.5 transition-colors duration-150 cursor-pointer"
             >
               <Download className="w-4 h-4" />
               <span>{t.exportBackup}</span>
@@ -217,7 +217,7 @@ export default function SettingsPanel({
             <button
               type="button"
               onClick={() => importRef.current?.click()}
-              className="min-h-[40px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#F7F7F5] dark:bg-[#1F1F1F] hover:bg-[#F1F1EF] dark:hover:bg-[#323232] text-[#2F2F2F] dark:text-[#E8E8E6] text-[13px] font-medium inline-flex items-center justify-center gap-1.5 transition"
+              className="min-h-[40px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium inline-flex items-center justify-center gap-1.5 transition-colors duration-150 cursor-pointer"
             >
               <Upload className="w-4 h-4" />
               <span>{t.importBackup}</span>

@@ -15,7 +15,7 @@ export default function CloudSyncWidget({
         <button
           type="button"
           onClick={onOpenAuth}
-          className="w-full min-h-[38px] px-2.5 rounded-lg border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#262626] hover:bg-[#F1F1EF] dark:hover:bg-[#303030] text-[#2F2F2F] dark:text-[#E8E8E6] text-[13px] font-medium flex items-center gap-2 transition"
+          className="w-full min-h-[38px] px-2.5 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#262626] hover:bg-[#F3F3F1] dark:hover:bg-[#2F2F2F] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium flex items-center gap-2 transition-colors duration-150 cursor-pointer"
         >
           <Cloud className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
           <span className="truncate">{t.signInCloudSync}</span>
@@ -58,7 +58,7 @@ export default function CloudSyncWidget({
 
   return (
     <div className="px-2.5 pb-2 shrink-0">
-      <div className="rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#262626] p-2.5 space-y-2">
+      <div className="rounded-xl border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#262626] p-2.5 space-y-2">
         {/* User Row */}
         <div className="flex items-center gap-2 min-w-0">
           {avatarUrl ? (
@@ -66,7 +66,7 @@ export default function CloudSyncWidget({
               src={avatarUrl}
               alt={displayName}
               referrerPolicy="no-referrer"
-              className="w-7 h-7 rounded-full object-cover shrink-0 border border-[#E5E5E3] dark:border-[#3A3A3A]"
+              className="w-7 h-7 rounded-full object-cover shrink-0 border border-[#E8E8E5] dark:border-[#3A3A3A]"
             />
           ) : (
             <div className="w-7 h-7 rounded-full bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold flex items-center justify-center shrink-0">
@@ -75,7 +75,7 @@ export default function CloudSyncWidget({
           )}
 
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium text-[#2F2F2F] dark:text-[#E8E8E6] truncate leading-tight">
+            <p className="text-[13px] font-medium text-[#262624] dark:text-[#ECECEA] truncate leading-tight">
               {user.email || displayName}
             </p>
             <div className={`flex items-center gap-1.5 text-[11px] font-medium mt-0.5 ${statusConfig.textCls}`}>
@@ -92,13 +92,13 @@ export default function CloudSyncWidget({
         </div>
 
         {/* Manual Sync Now + Sign Out Actions */}
-        <div className="flex items-center gap-1.5 pt-1 border-t border-[#E5E5E3] dark:border-[#2F2F2F]">
+        <div className="flex items-center gap-1.5 pt-1 border-t border-[#E8E8E5] dark:border-[#2F2F2F]">
           <button
             type="button"
             disabled={syncStatus === 'syncing'}
             onClick={onSyncNow}
             title={t.syncNow}
-            className="flex-1 min-h-[30px] px-2 rounded-lg bg-[#F7F7F5] dark:bg-[#1F1F1F] hover:bg-[#EBEBE8] dark:hover:bg-[#323232] disabled:opacity-50 text-[12px] font-medium text-[#555552] dark:text-[#C5C4C0] inline-flex items-center justify-center gap-1 transition"
+            className="flex-1 min-h-[30px] px-2 rounded-lg bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] disabled:opacity-50 text-[12px] font-medium text-[#4F4E4B] dark:text-[#C5C4C0] inline-flex items-center justify-center gap-1 transition-colors duration-150 cursor-pointer"
           >
             <RefreshCw className={`w-3 h-3 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
             <span className="truncate">{t.syncNow}</span>
@@ -109,7 +109,7 @@ export default function CloudSyncWidget({
             onClick={onSignOut}
             title={t.signOut}
             aria-label={t.signOut}
-            className="min-h-[30px] px-2 rounded-lg hover:bg-rose-500/10 text-[#787774] hover:text-rose-600 dark:hover:text-rose-400 inline-flex items-center justify-center gap-1 text-[12px] font-medium transition shrink-0"
+            className="min-h-[30px] px-2 rounded-lg hover:bg-rose-500/10 text-[#6B6A66] dark:text-[#9B9A97] hover:text-rose-600 dark:hover:text-rose-400 inline-flex items-center justify-center gap-1 text-[12px] font-medium transition-colors duration-150 shrink-0 cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
           </button>

@@ -541,12 +541,12 @@ export default function DocumentList({
             onOpenDocument(doc.id);
           }
         }}
-        className={`group flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${rowPad} rounded-xl border transition cursor-pointer ${
+        className={`group flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${rowPad} rounded-xl border transition-colors duration-150 cursor-pointer ${
           nested
-            ? 'border-transparent hover:bg-[#EBEBE8]/70 dark:hover:bg-[#2E2E2E]'
+            ? 'border-transparent hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C]'
             : isSelected
-              ? 'border-[#D3D3CF] dark:border-[#3A3A3A] bg-[#F7F7F5] dark:bg-[#262626]'
-              : 'border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#191919] hover:bg-[#F1F1EF] dark:hover:bg-[#262626]'
+              ? 'border-[#DCDCD8] dark:border-[#363636] bg-[#FBFBFA] dark:bg-[#262626]'
+              : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#191919] hover:bg-[#FBFBFA] dark:hover:bg-[#222222]'
         }`}
       >
         {/* Left: Icon + Title + Metadata */}
@@ -554,22 +554,22 @@ export default function DocumentList({
           <FileText
             className={`w-4 h-4 mt-1 sm:mt-0 shrink-0 ${
               nested
-                ? 'text-[#787774] dark:text-[#9B9A97]'
+                ? 'text-[#6B6A66] dark:text-[#9B9A97]'
                 : 'text-indigo-600 dark:text-indigo-400'
             }`}
           />
           <div className="min-w-0 flex-1">
-            <h3 className="font-medium text-[15px] leading-snug text-[#2F2F2F] dark:text-[#E8E8E6] truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition">
+            <h3 className="font-medium text-[15px] leading-snug text-[#262624] dark:text-[#ECECEA] truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors duration-150">
               {doc.title}
             </h3>
-            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-0.5 text-[13px] text-[#787774] dark:text-[#9B9A97]">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-0.5 text-[12.5px] text-[#6B6A66] dark:text-[#9B9A97]">
               <span className="inline-flex items-center gap-1">
                 <Calendar className="w-3 h-3" />
                 {formatDate(doc.createdAt)}
               </span>
 
               {!nested && assignedCount > 0 && (
-                <span className="inline-flex items-center gap-1 text-[12px] text-[#787774] dark:text-[#9B9A97]">
+                <span className="inline-flex items-center gap-1 text-[12px] text-[#6B6A66] dark:text-[#9B9A97]">
                   <Folder className="w-3 h-3" />
                   {t.inFoldersCount(assignedCount)}
                 </span>
@@ -579,7 +579,7 @@ export default function DocumentList({
                 {(doc.tags || []).slice(0, MAX_TAGS).map((tag) => (
                   <span
                     key={tag}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#F1F1EF] dark:bg-[#2C2C2C] text-[#555552] dark:text-[#C5C4C0] font-medium text-[12px]"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#F3F3F1] dark:bg-[#2C2C2C] text-[#555552] dark:text-[#C5C4C0] font-medium text-[11.5px]"
                   >
                     <Tag className="w-2.5 h-2.5 text-indigo-500" />
                     {tag}
@@ -592,14 +592,14 @@ export default function DocumentList({
 
         {/* Right: Row Action Controls */}
         <div
-          className="flex items-center gap-1 shrink-0 self-end sm:self-center opacity-85 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition"
+          className="flex items-center gap-1 shrink-0 self-end sm:self-center opacity-85 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity duration-150"
           onClick={(e) => e.stopPropagation()}
         >
           <button
             type="button"
             onClick={() => setAssigningDocId(doc.id)}
             title={t.assignToFolders}
-            className="min-h-[34px] px-2 rounded-lg text-[12px] font-medium text-[#555552] dark:text-[#C5C4C0] hover:bg-[#E5E5E3]/70 dark:hover:bg-[#343434] inline-flex items-center gap-1 transition"
+            className="min-h-[34px] px-2 rounded-lg text-[12px] font-medium text-[#555552] dark:text-[#C5C4C0] hover:bg-[#E8E8E5]/80 dark:hover:bg-[#343434] inline-flex items-center gap-1 cursor-pointer transition-colors duration-150"
           >
             <FolderInput className="w-3.5 h-3.5" />
             <span className="hidden xl:inline">{t.assignToFolders}</span>
@@ -608,7 +608,7 @@ export default function DocumentList({
             type="button"
             onClick={(e) => openMetaEditor(doc, e)}
             title={`${t.renameDoc} / ${t.editTags}`}
-            className="p-2 rounded-lg text-[#787774] hover:text-[#2F2F2F] dark:hover:text-white hover:bg-[#E5E5E3]/70 dark:hover:bg-[#343434] transition"
+            className="p-2 rounded-lg text-[#6B6A66] hover:text-[#262624] dark:hover:text-white hover:bg-[#E8E8E5]/80 dark:hover:bg-[#343434] cursor-pointer transition-colors duration-150"
           >
             <Pencil className="w-3.5 h-3.5" />
           </button>
@@ -616,7 +616,7 @@ export default function DocumentList({
             type="button"
             onClick={() => onDeleteDocument(doc.id)}
             title={t.deleteDoc}
-            className="p-2 rounded-lg text-[#787774] hover:text-rose-600 hover:bg-rose-500/10 transition"
+            className="p-2 rounded-lg text-[#6B6A66] hover:text-rose-600 hover:bg-rose-500/10 cursor-pointer transition-colors duration-150"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -634,7 +634,7 @@ export default function DocumentList({
     >
       {/* Drag-and-Drop Overlay */}
       {isDraggingOverList && !dragTargetFolderId && (
-        <div className="pointer-events-none absolute inset-3 z-30 rounded-2xl border-2 border-dashed border-indigo-500 bg-indigo-500/10 backdrop-blur-[1px] flex flex-col items-center justify-center text-center p-6">
+        <div className="hd-fade-in pointer-events-none absolute inset-3 z-30 rounded-xl border-2 border-dashed border-indigo-500 bg-indigo-500/8 backdrop-blur-[1px] flex flex-col items-center justify-center text-center p-6">
           <Upload className="w-10 h-10 text-indigo-600 dark:text-indigo-400 mb-2" />
           <p className="text-[16px] font-semibold text-indigo-700 dark:text-indigo-300">
             {t.dropFilesOverlayTitle}
@@ -645,24 +645,24 @@ export default function DocumentList({
         </div>
       )}
       {/* Top Workspace Header & Actions */}
-      <div className="px-5 sm:px-8 pt-5 pb-3.5 border-b border-[#E5E5E3] dark:border-[#2F2F2F] shrink-0">
+      <div className="px-5 sm:px-8 pt-5 pb-3.5 border-b border-[#E8E8E5] dark:border-[#2F2F2F] shrink-0">
         <div className="max-w-5xl mx-auto space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 className="font-bold text-xl tracking-tight text-[#2F2F2F] dark:text-[#E8E8E6]">
+              <h1 className="font-bold text-xl tracking-tight text-[#262624] dark:text-[#ECECEA]">
                 {t.documentsTitle}
               </h1>
-              <p className="text-[13px] text-[#787774] dark:text-[#9B9A97]">
+              <p className="text-[13px] text-[#6B6A66] dark:text-[#9B9A97]">
                 {t.folderCount(folders.length)} · {t.docCount(documents.length)} · Markdown + KaTeX
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               {/* + New Folder */}
               <button
                 type="button"
                 onClick={openCreateFolder}
-                className="min-h-[38px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#262626] hover:bg-[#F1F1EF] dark:hover:bg-[#323232] text-[#2F2F2F] dark:text-[#E8E8E6] text-[13px] font-medium inline-flex items-center gap-1.5 transition"
+                className="min-h-[38px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#262626] hover:bg-[#F3F3F1] dark:hover:bg-[#303030] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
                 <FolderPlus className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                 <span>{t.newFolder}</span>
@@ -672,7 +672,7 @@ export default function DocumentList({
               <button
                 type="button"
                 onClick={handleOpenGdocModal}
-                className="min-h-[38px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#262626] hover:bg-[#F1F1EF] dark:hover:bg-[#323232] text-[#2F2F2F] dark:text-[#E8E8E6] text-[13px] font-medium inline-flex items-center gap-1.5 transition"
+                className="min-h-[38px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#262626] hover:bg-[#F3F3F1] dark:hover:bg-[#303030] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
                 <Link2 className="w-4 h-4 text-sky-600 dark:text-sky-400" />
                 <span>{t.importGdoc}</span>
@@ -682,7 +682,7 @@ export default function DocumentList({
               <button
                 type="button"
                 onClick={handleOpenScanner}
-                className="min-h-[38px] px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold inline-flex items-center gap-1.5 shadow-xs transition"
+                className="min-h-[38px] px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
                 <ScanLine className="w-4 h-4" />
                 <span>{t.scanA4}</span>
@@ -694,7 +694,7 @@ export default function DocumentList({
                 disabled={Boolean(pdfStatusMode)}
                 onClick={() => triggerUploadIntoFolders([])}
                 title=".md, .txt, .docx, .pdf"
-                className="min-h-[38px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#202020] hover:bg-[#F1F1EF] dark:hover:bg-[#262626] disabled:opacity-50 text-[#2F2F2F] dark:text-[#E8E8E6] text-[13px] font-medium inline-flex items-center gap-1.5 transition"
+                className="min-h-[38px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] disabled:opacity-50 text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
                 {pdfStatusMode ? (
                   <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
@@ -715,7 +715,7 @@ export default function DocumentList({
               <button
                 type="button"
                 onClick={handleNewNote}
-                className="min-h-[38px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#202020] hover:bg-[#F1F1EF] dark:hover:bg-[#262626] text-[#2F2F2F] dark:text-[#E8E8E6] text-[13px] font-medium inline-flex items-center gap-1.5 transition"
+                className="min-h-[38px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
                 <FilePlus2 className="w-4 h-4" />
                 <span>{t.newDoc}</span>
@@ -736,13 +736,13 @@ export default function DocumentList({
           {/* Search & Tag Filter Strip */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-[#787774] absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-[#6B6A66] dark:text-[#9B9A97] absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t.searchDocsPlaceholder}
-                className="w-full min-h-[38px] pl-9 pr-3.5 rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] text-[14px] text-[#2F2F2F] dark:text-[#E8E8E6] placeholder:text-[#9B9A97] focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                className="w-full min-h-[38px] pl-9 pr-3.5 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] text-[14px] text-[#262624] dark:text-[#ECECEA] placeholder:text-[#9B9A97] focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
               />
             </div>
 
@@ -755,10 +755,10 @@ export default function DocumentList({
                       key={tag}
                       type="button"
                       onClick={() => setActiveTagFilter(active ? '' : tag)}
-                      className={`min-h-[32px] px-2.5 rounded-lg text-[13px] font-medium whitespace-nowrap border transition ${
+                      className={`min-h-[32px] px-2.5 rounded-lg text-[12.5px] font-medium whitespace-nowrap border cursor-pointer transition-colors duration-150 ${
                         active
-                          ? 'bg-[#2F2F2F] dark:bg-[#E8E8E6] text-white dark:text-[#191919] border-transparent'
-                          : 'bg-[#F7F7F5] dark:bg-[#202020] border-[#E5E5E3] dark:border-[#2F2F2F] text-[#555552] dark:text-[#B5B4B0] hover:bg-[#F1F1EF] dark:hover:bg-[#262626]'
+                          ? 'bg-[#262624] dark:bg-[#ECECEA] text-white dark:text-[#191919] border-transparent'
+                          : 'bg-[#FBFBFA] dark:bg-[#202020] border-[#E8E8E5] dark:border-[#2F2F2F] text-[#555552] dark:text-[#B5B4B0] hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
                       }`}
                     >
                       #{tag}
@@ -777,7 +777,7 @@ export default function DocumentList({
           {/* 1. Custom Folders (Inline Expandable Accordions) */}
           {filteredFolders.length > 0 && (
             <div className="space-y-2">
-              <h2 className="text-[12px] font-semibold uppercase tracking-wider text-[#787774] dark:text-[#9B9A97] px-1">
+              <h2 className="text-[12px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97] px-1">
                 {t.foldersSectionLabel} ({filteredFolders.length})
               </h2>
 
@@ -804,10 +804,10 @@ export default function DocumentList({
                         }
                       }}
                       onDrop={(e) => handleWorkspaceDrop(e, folder.id)}
-                      className={`rounded-xl border overflow-hidden transition ${
+                      className={`rounded-xl border overflow-hidden transition-colors duration-150 ${
                         dragTargetFolderId === folder.id
                           ? 'border-indigo-500 ring-2 ring-indigo-500/30 bg-indigo-500/5'
-                          : 'border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020]'
+                          : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020]'
                       }`}
                     >
                       {/* Folder Accordion Header Row */}
@@ -821,10 +821,10 @@ export default function DocumentList({
                             toggleFolderAccordion(folder.id);
                           }
                         }}
-                        className={`group flex items-center justify-between gap-2 ${rowPad} hover:bg-[#F1F1EF] dark:hover:bg-[#262626] cursor-pointer transition`}
+                        className={`group flex items-center justify-between gap-2 ${rowPad} hover:bg-[#F3F3F1] dark:hover:bg-[#262626] cursor-pointer transition-colors duration-150`}
                       >
                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <span className="text-[#787774] dark:text-[#9B9A97] shrink-0">
+                          <span className="text-[#6B6A66] dark:text-[#9B9A97] shrink-0">
                             {isExpanded ? (
                               <ChevronDown className="w-4 h-4" />
                             ) : (
@@ -836,10 +836,10 @@ export default function DocumentList({
                           ) : (
                             <Folder className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
                           )}
-                          <span className="font-semibold text-[15px] text-[#2F2F2F] dark:text-[#E8E8E6] truncate">
+                          <span className="font-semibold text-[15px] text-[#262624] dark:text-[#ECECEA] truncate">
                             {folder.name}
                           </span>
-                          <span className="px-2 py-0.5 rounded-full bg-[#EBEBE8] dark:bg-[#2C2C2C] text-[#787774] dark:text-[#9B9A97] text-[12px] font-medium shrink-0">
+                          <span className="px-2 py-0.5 rounded-full bg-[#F3F3F1] dark:bg-[#2C2C2C] text-[#6B6A66] dark:text-[#9B9A97] text-[12px] font-medium tabular-nums shrink-0">
                             {folderDocs.length}
                           </span>
 
@@ -848,7 +848,7 @@ export default function DocumentList({
                             {(folder.tags || []).slice(0, MAX_TAGS).map((tag) => (
                               <span
                                 key={tag}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#FFFFFF] dark:bg-[#262626] border border-[#E5E5E3] dark:border-[#343434] text-[#555552] dark:text-[#C5C4C0] text-[12px] font-medium"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#343434] text-[#555552] dark:text-[#C5C4C0] text-[11.5px] font-medium"
                               >
                                 <Tag className="w-2.5 h-2.5 text-amber-500" />
                                 {tag}
@@ -859,7 +859,7 @@ export default function DocumentList({
 
                         {/* Folder Actions */}
                         <div
-                          className="flex items-center gap-0.5 opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition shrink-0"
+                          className="flex items-center gap-0.5 opacity-80 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150 shrink-0"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <button
@@ -867,7 +867,7 @@ export default function DocumentList({
                             disabled={Boolean(pdfStatusMode)}
                             onClick={() => triggerUploadIntoFolders([folder.id])}
                             title={t.uploadIntoFolder}
-                            className="p-1.5 rounded-lg text-[#787774] hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-[#E5E5E3]/70 dark:hover:bg-[#343434] disabled:opacity-40"
+                            className="p-1.5 rounded-lg text-[#6B6A66] hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-[#E8E8E5]/80 dark:hover:bg-[#343434] disabled:opacity-40 cursor-pointer transition-colors duration-150"
                           >
                             <Upload className="w-3.5 h-3.5" />
                           </button>
@@ -875,7 +875,7 @@ export default function DocumentList({
                             type="button"
                             onClick={(e) => openEditFolder(folder, e)}
                             title={t.editFolder}
-                            className="p-1.5 rounded-lg text-[#787774] hover:text-[#2F2F2F] dark:hover:text-white hover:bg-[#E5E5E3]/70 dark:hover:bg-[#343434]"
+                            className="p-1.5 rounded-lg text-[#6B6A66] hover:text-[#262624] dark:hover:text-white hover:bg-[#E8E8E5]/80 dark:hover:bg-[#343434] cursor-pointer transition-colors duration-150"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
@@ -883,7 +883,7 @@ export default function DocumentList({
                             type="button"
                             onClick={() => onDeleteFolder(folder.id)}
                             title={t.deleteFolder}
-                            className="p-1.5 rounded-lg text-[#787774] hover:text-rose-600 hover:bg-rose-500/10"
+                            className="p-1.5 rounded-lg text-[#6B6A66] hover:text-rose-600 hover:bg-rose-500/10 cursor-pointer transition-colors duration-150"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -892,9 +892,9 @@ export default function DocumentList({
 
                       {/* Expanded Inline Documents */}
                       {isExpanded && (
-                        <div className="border-t border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#FFFFFF]/65 dark:bg-[#1C1C1C] px-3 py-2 pl-7 space-y-1">
+                        <div className="border-t border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF]/80 dark:bg-[#1C1C1C] px-3 py-2 pl-7 space-y-1">
                           {folderDocs.length === 0 ? (
-                            <p className="text-[13px] text-[#787774] dark:text-[#8E8D8A] py-2 px-1 italic">
+                            <p className="text-[13px] text-[#6B6A66] dark:text-[#8E8D8A] py-2 px-1 italic">
                               {t.emptyFolderHint}
                             </p>
                           ) : (
@@ -911,12 +911,12 @@ export default function DocumentList({
 
           {/* 2. All Documents List */}
           <div className="space-y-2">
-            <h2 className="text-[12px] font-semibold uppercase tracking-wider text-[#787774] dark:text-[#9B9A97] px-1">
+            <h2 className="text-[12px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97] px-1">
               {t.allDocumentsSectionLabel} ({filteredDocs.length})
             </h2>
 
             {filteredDocs.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-[#E5E5E3] dark:border-[#2F2F2F] p-10 text-center text-[#787774] dark:text-[#9B9A97]">
+              <div className="rounded-xl border border-dashed border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA]/50 dark:bg-[#202020]/50 p-10 text-center text-[#6B6A66] dark:text-[#9B9A97]">
                 <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
                 <p className="text-[15px]">{t.noDocsFound}</p>
               </div>
@@ -933,16 +933,22 @@ export default function DocumentList({
       {folderModalOpen &&
         typeof document !== 'undefined' &&
         createPortal(
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4">
-            <div className="w-full max-w-md rounded-2xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E5E5E3] dark:border-[#2F2F2F] shadow-2xl p-5">
+          <div
+            className="hd-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4"
+            onClick={() => setFolderModalOpen(false)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="hd-modal-in w-full max-w-md rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#2F2F2F] shadow-2xl p-5"
+            >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-[17px]">
+                <h3 className="font-semibold text-[17px] text-[#262624] dark:text-[#ECECEA]">
                   {editingFolder ? t.editFolder : t.createFolder}
                 </h3>
                 <button
                   type="button"
                   onClick={() => setFolderModalOpen(false)}
-                  className="touch-target inline-flex items-center justify-center rounded-lg text-[#787774] hover:bg-[#F1F1EF] dark:hover:bg-[#323232]"
+                  className="touch-target inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] cursor-pointer transition-colors duration-150"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -950,7 +956,7 @@ export default function DocumentList({
 
               <form onSubmit={handleSaveFolder} className="space-y-4">
                 <div>
-                  <label className="block text-[13px] font-medium text-[#787774] dark:text-[#9B9A97] mb-1.5">
+                  <label className="block text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97] mb-1.5">
                     {t.folderNameLabel}
                   </label>
                   <input
@@ -960,13 +966,13 @@ export default function DocumentList({
                     value={folderNameDraft}
                     onChange={(e) => setFolderNameDraft(e.target.value)}
                     placeholder={t.folderNamePlaceholder}
-                    className="w-full min-h-[42px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[15px] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full min-h-[42px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[15px] focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   />
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[13px] font-medium text-[#787774] dark:text-[#9B9A97]">
+                    <label className="text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
                       {t.editTags} ({folderTagsDraft.length}/{MAX_TAGS})
                     </label>
                     <span className="text-[12px] text-[#9B9A97]">{t.maxTagsHint}</span>
@@ -977,7 +983,7 @@ export default function DocumentList({
                       {folderTagsDraft.map((tag) => (
                         <span
                           key={tag}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F1F1EF] dark:bg-[#323232] text-[13px] font-medium"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium"
                         >
                           {tag}
                           <button
@@ -985,7 +991,7 @@ export default function DocumentList({
                             onClick={() =>
                               setFolderTagsDraft(folderTagsDraft.filter((x) => x !== tag))
                             }
-                            className="hover:text-rose-500"
+                            className="hover:text-rose-500 cursor-pointer"
                           >
                             <X className="w-3 h-3" />
                           </button>
@@ -1016,7 +1022,7 @@ export default function DocumentList({
                           ? t.maxTagsReached
                           : t.addTagPlaceholder
                       }
-                      className="flex-1 min-h-[40px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[13px] disabled:opacity-50"
+                      className="flex-1 min-h-[40px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[13px] disabled:opacity-50"
                     />
                     <button
                       type="button"
@@ -1029,7 +1035,7 @@ export default function DocumentList({
                           setFolderTagInput
                         )
                       }
-                      className="px-3.5 rounded-xl bg-[#F1F1EF] dark:bg-[#323232] text-[14px] font-semibold disabled:opacity-40"
+                      className="px-3.5 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] hover:bg-[#E8E8E5] dark:hover:bg-[#3C3C3C] text-[14px] font-semibold disabled:opacity-40 cursor-pointer transition-colors duration-150"
                     >
                       +
                     </button>
@@ -1040,13 +1046,13 @@ export default function DocumentList({
                   <button
                     type="button"
                     onClick={() => setFolderModalOpen(false)}
-                    className="min-h-[40px] px-4 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] text-[14px] font-medium"
+                    className="min-h-[40px] px-4 rounded-lg border border-[#E8E8E5] dark:border-[#363636] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[14px] font-medium cursor-pointer transition-colors duration-150"
                   >
                     {t.cancel}
                   </button>
                   <button
                     type="submit"
-                    className="min-h-[40px] px-5 rounded-xl bg-[#2F2F2F] dark:bg-[#E8E8E6] text-white dark:text-[#191919] text-[14px] font-semibold inline-flex items-center gap-1.5"
+                    className="min-h-[40px] px-5 rounded-lg bg-[#262624] hover:bg-[#191919] dark:bg-[#ECECEA] dark:hover:bg-white text-white dark:text-[#191919] text-[14px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
                   >
                     <Check className="w-4 h-4" />
                     <span>{t.save}</span>
@@ -1063,31 +1069,33 @@ export default function DocumentList({
         typeof document !== 'undefined' &&
         createPortal(
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4"
+            className="hd-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4"
             onClick={() => setAssigningDocId(null)}
           >
             <div
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-md rounded-2xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E5E5E3] dark:border-[#2F2F2F] shadow-2xl p-5 space-y-4"
+              className="hd-modal-in w-full max-w-md rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#2F2F2F] shadow-2xl p-5 space-y-4"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <h3 className="font-semibold text-[16px]">{t.assignToFolders}</h3>
-                  <p className="text-[13px] text-[#787774] dark:text-[#9B9A97] truncate">
+                  <h3 className="font-semibold text-[16px] text-[#262624] dark:text-[#ECECEA]">
+                    {t.assignToFolders}
+                  </h3>
+                  <p className="text-[13px] text-[#6B6A66] dark:text-[#9B9A97] truncate">
                     {assigningDoc.title}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setAssigningDocId(null)}
-                  className="p-1.5 rounded-lg text-[#787774] hover:bg-[#F1F1EF] dark:hover:bg-[#323232]"
+                  className="p-1.5 rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] cursor-pointer transition-colors duration-150"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               {folders.length === 0 ? (
-                <p className="text-[14px] text-[#787774] dark:text-[#9B9A97] py-4 text-center">
+                <p className="text-[14px] text-[#6B6A66] dark:text-[#9B9A97] py-4 text-center">
                   {t.noFoldersCreated}
                 </p>
               ) : (
@@ -1097,10 +1105,10 @@ export default function DocumentList({
                     return (
                       <label
                         key={folder.id}
-                        className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition ${
+                        className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors duration-150 ${
                           isChecked
-                            ? 'border-indigo-500/50 bg-indigo-500/5'
-                            : 'border-[#E5E5E3] dark:border-[#343434] hover:bg-[#F7F7F5] dark:hover:bg-[#2F2F2F]'
+                            ? 'border-indigo-500/50 bg-indigo-500/6'
+                            : 'border-[#E8E8E5] dark:border-[#343434] hover:bg-[#FBFBFA] dark:hover:bg-[#2F2F2F]'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -1108,13 +1116,15 @@ export default function DocumentList({
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => onToggleDocFolder(assigningDoc.id, folder.id)}
-                            className="w-4 h-4 rounded border-[#BDBCB8] text-indigo-600 focus:ring-indigo-500 shrink-0"
+                            className="w-4 h-4 rounded border-[#C6C5C0] text-indigo-600 focus:ring-indigo-500 shrink-0 cursor-pointer"
                           />
                           <Folder className="w-4 h-4 text-amber-500 shrink-0" />
-                          <span className="text-[14px] font-medium truncate">{folder.name}</span>
+                          <span className="text-[14px] font-medium text-[#262624] dark:text-[#ECECEA] truncate">
+                            {folder.name}
+                          </span>
                         </div>
                         {(folder.tags || []).length > 0 && (
-                          <span className="text-[12px] text-[#787774] truncate max-w-[35%]">
+                          <span className="text-[12px] text-[#6B6A66] dark:text-[#9B9A97] truncate max-w-[35%]">
                             #{folder.tags[0]}
                           </span>
                         )}
@@ -1124,14 +1134,14 @@ export default function DocumentList({
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-2 border-t border-[#E5E5E3] dark:border-[#2F2F2F]">
+              <div className="flex items-center justify-between pt-2 border-t border-[#E8E8E5] dark:border-[#2F2F2F]">
                 <button
                   type="button"
                   onClick={() => {
                     setAssigningDocId(null);
                     openCreateFolder();
                   }}
-                  className="text-[13px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1"
+                  className="text-[13px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
                 >
                   <FolderPlus className="w-3.5 h-3.5" />
                   <span>{t.newFolder}</span>
@@ -1139,7 +1149,7 @@ export default function DocumentList({
                 <button
                   type="button"
                   onClick={() => setAssigningDocId(null)}
-                  className="min-h-[38px] px-4 rounded-xl bg-[#2F2F2F] dark:bg-[#E8E8E6] text-white dark:text-[#191919] text-[13px] font-semibold"
+                  className="min-h-[38px] px-4 rounded-lg bg-[#262624] hover:bg-[#191919] dark:bg-[#ECECEA] dark:hover:bg-white text-white dark:text-[#191919] text-[13px] font-semibold cursor-pointer transition-colors duration-150"
                 >
                   {t.doneReviewing}
                 </button>
@@ -1153,16 +1163,22 @@ export default function DocumentList({
       {editingMetaDoc &&
         typeof document !== 'undefined' &&
         createPortal(
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4">
-            <div className="w-full max-w-md rounded-2xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E5E5E3] dark:border-[#2F2F2F] shadow-2xl p-5">
+          <div
+            className="hd-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4"
+            onClick={() => setEditingMetaDoc(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="hd-modal-in w-full max-w-md rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#2F2F2F] shadow-2xl p-5"
+            >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-[17px]">
+                <h3 className="font-semibold text-[17px] text-[#262624] dark:text-[#ECECEA]">
                   {t.renameDoc} & {t.editTags}
                 </h3>
                 <button
                   type="button"
                   onClick={() => setEditingMetaDoc(null)}
-                  className="touch-target inline-flex items-center justify-center rounded-lg text-[#787774] hover:bg-[#F1F1EF] dark:hover:bg-[#323232]"
+                  className="touch-target inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] cursor-pointer transition-colors duration-150"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1170,7 +1186,7 @@ export default function DocumentList({
 
               <form onSubmit={handleSaveMeta} className="space-y-4">
                 <div>
-                  <label className="block text-[13px] font-medium text-[#787774] dark:text-[#9B9A97] mb-1.5">
+                  <label className="block text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97] mb-1.5">
                     {t.docTitlePlaceholder}
                   </label>
                   <input
@@ -1178,13 +1194,13 @@ export default function DocumentList({
                     required
                     value={metaTitle}
                     onChange={(e) => setMetaTitle(e.target.value)}
-                    className="w-full min-h-[42px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[15px] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full min-h-[42px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[15px] focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   />
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[13px] font-medium text-[#787774] dark:text-[#9B9A97]">
+                    <label className="text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
                       {t.editTags} ({metaTags.length}/{MAX_TAGS})
                     </label>
                     <span className="text-[12px] text-[#9B9A97]">{t.maxTagsHint}</span>
@@ -1194,13 +1210,13 @@ export default function DocumentList({
                     {metaTags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#F1F1EF] dark:bg-[#323232] text-[13px] font-medium"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium"
                       >
                         {tag}
                         <button
                           type="button"
                           onClick={() => setMetaTags(metaTags.filter((x) => x !== tag))}
-                          className="hover:text-rose-500"
+                          className="hover:text-rose-500 cursor-pointer"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -1223,13 +1239,13 @@ export default function DocumentList({
                       placeholder={
                         metaTags.length >= MAX_TAGS ? t.maxTagsReached : t.addTagPlaceholder
                       }
-                      className="flex-1 min-h-[40px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[13px] disabled:opacity-50"
+                      className="flex-1 min-h-[40px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[13px] disabled:opacity-50"
                     />
                     <button
                       type="button"
                       disabled={metaTags.length >= MAX_TAGS || !tagDraft.trim()}
                       onClick={() => addTagToList(tagDraft, metaTags, setMetaTags, setTagDraft)}
-                      className="px-3.5 rounded-xl bg-[#F1F1EF] dark:bg-[#323232] font-semibold text-[14px] disabled:opacity-40"
+                      className="px-3.5 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] hover:bg-[#E8E8E5] dark:hover:bg-[#3C3C3C] font-semibold text-[14px] disabled:opacity-40 cursor-pointer transition-colors duration-150"
                     >
                       +
                     </button>
@@ -1240,13 +1256,13 @@ export default function DocumentList({
                   <button
                     type="button"
                     onClick={() => setEditingMetaDoc(null)}
-                    className="min-h-[40px] px-4 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] text-[14px] font-medium"
+                    className="min-h-[40px] px-4 rounded-lg border border-[#E8E8E5] dark:border-[#363636] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[14px] font-medium cursor-pointer transition-colors duration-150"
                   >
                     {t.cancel}
                   </button>
                   <button
                     type="submit"
-                    className="min-h-[40px] px-5 rounded-xl bg-[#2F2F2F] dark:bg-[#E8E8E6] text-white dark:text-[#191919] text-[14px] font-semibold inline-flex items-center gap-1.5"
+                    className="min-h-[40px] px-5 rounded-lg bg-[#262624] hover:bg-[#191919] dark:bg-[#ECECEA] dark:hover:bg-white text-white dark:text-[#191919] text-[14px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
                   >
                     <Check className="w-4 h-4" />
                     <span>{t.save}</span>
@@ -1263,38 +1279,40 @@ export default function DocumentList({
         typeof document !== 'undefined' &&
         createPortal(
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4"
+            className="hd-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4"
             onClick={() => !isImportingGdoc && setShowGdocModal(false)}
           >
             <div
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-2xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E5E5E3] dark:border-[#2F2F2F] shadow-2xl p-5"
+              className="hd-modal-in w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#2F2F2F] shadow-2xl p-5"
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-sky-500/15 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-lg bg-sky-500/12 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
                     <Link2 className="w-4 h-4" />
                   </div>
-                  <h3 className="font-semibold text-[16px]">{t.gdocModalTitle}</h3>
+                  <h3 className="font-semibold text-[16px] text-[#262624] dark:text-[#ECECEA]">
+                    {t.gdocModalTitle}
+                  </h3>
                 </div>
                 <button
                   type="button"
                   disabled={isImportingGdoc}
                   onClick={() => setShowGdocModal(false)}
-                  className="touch-target inline-flex items-center justify-center rounded-lg text-[#787774] hover:bg-[#F1F1EF] dark:hover:bg-[#323232]"
+                  className="touch-target inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] cursor-pointer transition-colors duration-150"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <p className="text-[13px] text-[#787774] dark:text-[#9B9A97] mb-4 leading-relaxed">
+              <p className="text-[13px] text-[#6B6A66] dark:text-[#9B9A97] mb-4 leading-relaxed">
                 {t.gdocModalDesc}
               </p>
 
               <form onSubmit={handleImportGdocSubmit} className="space-y-4">
                 {/* Google Docs URL */}
                 <div>
-                  <label className="block text-[13px] font-medium text-[#787774] dark:text-[#9B9A97] mb-1.5">
+                  <label className="block text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97] mb-1.5">
                     {t.gdocUrlLabel}
                   </label>
                   <input
@@ -1307,7 +1325,7 @@ export default function DocumentList({
                       if (gdocError) setGdocError('');
                     }}
                     placeholder={t.gdocUrlPlaceholder}
-                    className="w-full min-h-[42px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[14px] focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    className="w-full min-h-[42px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[14px] focus:outline-none focus:ring-2 focus:ring-sky-500/40"
                   />
                 </div>
 
@@ -1322,7 +1340,7 @@ export default function DocumentList({
                 {/* Optional Target Folders (Many-to-Many) */}
                 {folders.length > 0 && (
                   <div>
-                    <label className="block text-[13px] font-medium text-[#787774] dark:text-[#9B9A97] mb-1.5">
+                    <label className="block text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97] mb-1.5">
                       {t.gdocTargetFoldersLabel}
                     </label>
                     <div className="max-h-36 overflow-y-auto space-y-1 pr-0.5">
@@ -1331,20 +1349,22 @@ export default function DocumentList({
                         return (
                           <label
                             key={folder.id}
-                            className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border text-[14px] cursor-pointer transition ${
+                            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border text-[14px] cursor-pointer transition-colors duration-150 ${
                               checked
-                                ? 'border-indigo-500/50 bg-indigo-500/5'
-                                : 'border-[#E5E5E3] dark:border-[#343434] hover:bg-[#F7F7F5] dark:hover:bg-[#2F2F2F]'
+                                ? 'border-indigo-500/50 bg-indigo-500/6'
+                                : 'border-[#E8E8E5] dark:border-[#343434] hover:bg-[#FBFBFA] dark:hover:bg-[#2F2F2F]'
                             }`}
                           >
                             <input
                               type="checkbox"
                               checked={checked}
                               onChange={() => toggleGdocTargetFolder(folder.id)}
-                              className="w-4 h-4 rounded border-[#BDBCB8] text-indigo-600 focus:ring-indigo-500 shrink-0"
+                              className="w-4 h-4 rounded border-[#C6C5C0] text-indigo-600 focus:ring-indigo-500 shrink-0 cursor-pointer"
                             />
                             <Folder className="w-4 h-4 text-amber-500 shrink-0" />
-                            <span className="truncate font-medium">{folder.name}</span>
+                            <span className="truncate font-medium text-[#262624] dark:text-[#ECECEA]">
+                              {folder.name}
+                            </span>
                           </label>
                         );
                       })}
@@ -1355,7 +1375,7 @@ export default function DocumentList({
                 {/* Optional Tags (Max 3) */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[13px] font-medium text-[#787774] dark:text-[#9B9A97]">
+                    <label className="text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
                       {t.editTags} ({gdocTags.length}/{MAX_TAGS})
                     </label>
                     <span className="text-[12px] text-[#9B9A97]">{t.maxTagsHint}</span>
@@ -1366,13 +1386,13 @@ export default function DocumentList({
                       {gdocTags.map((tag) => (
                         <span
                           key={tag}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F1F1EF] dark:bg-[#323232] text-[13px] font-medium"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium"
                         >
                           {tag}
                           <button
                             type="button"
                             onClick={() => setGdocTags(gdocTags.filter((x) => x !== tag))}
-                            className="hover:text-rose-500"
+                            className="hover:text-rose-500 cursor-pointer"
                           >
                             <X className="w-3 h-3" />
                           </button>
@@ -1396,7 +1416,7 @@ export default function DocumentList({
                       placeholder={
                         gdocTags.length >= MAX_TAGS ? t.maxTagsReached : t.addTagPlaceholder
                       }
-                      className="flex-1 min-h-[38px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[13px] disabled:opacity-50"
+                      className="flex-1 min-h-[38px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[13px] disabled:opacity-50"
                     />
                     <button
                       type="button"
@@ -1404,7 +1424,7 @@ export default function DocumentList({
                       onClick={() =>
                         addTagToList(gdocTagDraft, gdocTags, setGdocTags, setGdocTagDraft)
                       }
-                      className="px-3.5 rounded-xl bg-[#F1F1EF] dark:bg-[#323232] font-semibold text-[14px] disabled:opacity-40"
+                      className="px-3.5 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] hover:bg-[#E8E8E5] dark:hover:bg-[#3C3C3C] font-semibold text-[14px] disabled:opacity-40 cursor-pointer transition-colors duration-150"
                     >
                       +
                     </button>
@@ -1412,18 +1432,18 @@ export default function DocumentList({
                 </div>
 
                 {/* Auto-format Math/Chemistry KaTeX Checkbox */}
-                <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-[#E5E5E3] dark:border-[#343434] bg-[#F7F7F5] dark:bg-[#202020] cursor-pointer transition hover:border-indigo-500/40">
+                <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-[#E8E8E5] dark:border-[#343434] bg-[#FBFBFA] dark:bg-[#202020] cursor-pointer transition-colors duration-150 hover:border-indigo-500/40">
                   <input
                     type="checkbox"
                     checked={autoSanitizeKatex}
                     onChange={(e) => setAutoSanitizeKatex(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 rounded border-[#BDBCB8] text-indigo-600 focus:ring-indigo-500 shrink-0"
+                    className="mt-0.5 w-4 h-4 rounded border-[#C6C5C0] text-indigo-600 focus:ring-indigo-500 shrink-0 cursor-pointer"
                   />
                   <div className="min-w-0">
-                    <p className="text-[13px] font-semibold text-[#2F2F2F] dark:text-[#E8E8E6]">
+                    <p className="text-[13px] font-semibold text-[#262624] dark:text-[#ECECEA]">
                       {t.autoFormatKatexLabel}
                     </p>
-                    <p className="text-[12px] text-[#787774] dark:text-[#9B9A97] leading-snug mt-0.5">
+                    <p className="text-[12px] text-[#6B6A66] dark:text-[#9B9A97] leading-snug mt-0.5">
                       {t.autoFormatKatexHint}
                     </p>
                   </div>
@@ -1434,14 +1454,14 @@ export default function DocumentList({
                     type="button"
                     disabled={isImportingGdoc}
                     onClick={() => setShowGdocModal(false)}
-                    className="min-h-[40px] px-4 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] text-[14px] font-medium"
+                    className="min-h-[40px] px-4 rounded-lg border border-[#E8E8E5] dark:border-[#363636] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[14px] font-medium cursor-pointer transition-colors duration-150"
                   >
                     {t.cancel}
                   </button>
                   <button
                     type="submit"
                     disabled={isImportingGdoc || !gdocUrl.trim()}
-                    className="min-h-[40px] px-5 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-[14px] font-semibold inline-flex items-center gap-2"
+                    className="min-h-[40px] px-5 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-[14px] font-semibold inline-flex items-center gap-2 cursor-pointer transition-colors duration-150"
                   >
                     {isImportingGdoc ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -1461,16 +1481,24 @@ export default function DocumentList({
       {showScanner &&
         typeof document !== 'undefined' &&
         createPortal(
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-[2px] p-4">
-            <div className="w-full max-w-3xl max-h-[92dvh] flex flex-col rounded-2xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E5E5E3] dark:border-[#2F2F2F] shadow-2xl overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E5E3] dark:border-[#2F2F2F] shrink-0">
+          <div
+            className="hd-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-[2px] p-4"
+            onClick={() => !isScanning && setShowScanner(false)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="hd-modal-in w-full max-w-3xl max-h-[92dvh] flex flex-col rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#2F2F2F] shadow-2xl overflow-hidden"
+            >
+              <div className="flex items-center justify-between px-5 py-4 border-b border-[#E8E8E5] dark:border-[#2F2F2F] shrink-0">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/12 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
                     <ScanLine className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-[16px]">{t.scannerTitle}</h3>
-                    <p className="text-[12px] text-[#787774] dark:text-[#9B9A97]">
+                    <h3 className="font-semibold text-[16px] text-[#262624] dark:text-[#ECECEA]">
+                      {t.scannerTitle}
+                    </h3>
+                    <p className="text-[12px] text-[#6B6A66] dark:text-[#9B9A97]">
                       Gemini Vision → Markdown + KaTeX
                     </p>
                   </div>
@@ -1478,7 +1506,7 @@ export default function DocumentList({
                 <button
                   type="button"
                   onClick={() => setShowScanner(false)}
-                  className="touch-target inline-flex items-center justify-center rounded-lg text-[#787774] hover:bg-[#F1F1EF] dark:hover:bg-[#323232]"
+                  className="touch-target inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] cursor-pointer transition-colors duration-150"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1495,11 +1523,13 @@ export default function DocumentList({
                       e.preventDefault();
                       handleSelectScanImage(e.dataTransfer.files?.[0]);
                     }}
-                    className="border-2 border-dashed border-[#D3D3CF] dark:border-[#3A3A3A] hover:border-indigo-500 rounded-2xl p-10 text-center cursor-pointer transition bg-[#F7F7F5] dark:bg-[#202020]"
+                    className="border-2 border-dashed border-[#D8D8D4] dark:border-[#3A3A3A] hover:border-indigo-500 rounded-xl p-10 text-center cursor-pointer transition-colors duration-150 bg-[#FBFBFA] dark:bg-[#202020]"
                   >
                     <Camera className="w-10 h-10 mx-auto text-indigo-500 mb-3" />
-                    <p className="text-[15px] font-medium">{t.dropImagePrompt}</p>
-                    <span className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-xl bg-indigo-600 text-white text-[13px] font-semibold">
+                    <p className="text-[15px] font-medium text-[#262624] dark:text-[#ECECEA]">
+                      {t.dropImagePrompt}
+                    </p>
+                    <span className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-indigo-600 text-white text-[13px] font-semibold">
                       <Upload className="w-4 h-4" />
                       {t.captureCamera}
                     </span>
@@ -1507,7 +1537,7 @@ export default function DocumentList({
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2.5">
-                      <div className="rounded-xl overflow-hidden border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#191919] max-h-[340px] flex items-center justify-center">
+                      <div className="rounded-xl overflow-hidden border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#191919] max-h-[340px] flex items-center justify-center">
                         <img
                           src={scanImagePreview}
                           alt="A4 Page Preview"
@@ -1518,7 +1548,7 @@ export default function DocumentList({
                         <button
                           type="button"
                           onClick={() => scanInputRef.current?.click()}
-                          className="min-h-[40px] flex-1 px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] text-[13px] font-medium"
+                          className="min-h-[40px] flex-1 px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium cursor-pointer transition-colors duration-150"
                         >
                           {t.retakeImage}
                         </button>
@@ -1526,7 +1556,7 @@ export default function DocumentList({
                           type="button"
                           disabled={isScanning}
                           onClick={handleRunOCR}
-                          className="min-h-[40px] flex-1 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-[13px] font-semibold inline-flex items-center justify-center gap-2"
+                          className="min-h-[40px] flex-1 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-[13px] font-semibold inline-flex items-center justify-center gap-2 cursor-pointer transition-colors duration-150"
                         >
                           {isScanning ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -1546,7 +1576,7 @@ export default function DocumentList({
                             value={scannedTitle}
                             onChange={(e) => setScannedTitle(e.target.value)}
                             placeholder={t.docTitlePlaceholder}
-                            className="w-full min-h-[40px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[15px] font-semibold"
+                            className="w-full min-h-[40px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[15px] font-semibold"
                           />
 
                           <div>
@@ -1554,7 +1584,7 @@ export default function DocumentList({
                               {scannedTags.map((tag) => (
                                 <span
                                   key={tag}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-[12px] font-medium"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/12 text-indigo-700 dark:text-indigo-300 text-[12px] font-medium"
                                 >
                                   {tag}
                                   <button
@@ -1562,6 +1592,7 @@ export default function DocumentList({
                                     onClick={() =>
                                       setScannedTags(scannedTags.filter((x) => x !== tag))
                                     }
+                                    className="cursor-pointer hover:text-rose-500"
                                   >
                                     <X className="w-3 h-3" />
                                   </button>
@@ -1585,13 +1616,13 @@ export default function DocumentList({
                                   }
                                 }}
                                 placeholder={`${t.addTagPlaceholder} (${scannedTags.length}/${MAX_TAGS})`}
-                                className="w-full min-h-[36px] px-3 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[12px]"
+                                className="w-full min-h-[36px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[12px]"
                               />
                             )}
                           </div>
 
-                          <div className="flex-1 max-h-[240px] overflow-y-auto rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#191919] p-3.5">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#787774] mb-2">
+                          <div className="flex-1 max-h-[240px] overflow-y-auto rounded-xl border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#191919] p-3.5">
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97] mb-2">
                               {t.scannedPreviewTitle}
                             </p>
                             <div className="study-markdown">
@@ -1605,7 +1636,7 @@ export default function DocumentList({
                           </div>
                         </>
                       ) : (
-                        <div className="flex-1 rounded-xl border border-dashed border-[#E5E5E3] dark:border-[#343434] flex flex-col items-center justify-center p-6 text-center text-[#787774]">
+                        <div className="flex-1 rounded-xl border border-dashed border-[#E8E8E5] dark:border-[#343434] flex flex-col items-center justify-center p-6 text-center text-[#6B6A66] dark:text-[#9B9A97]">
                           {isScanning ? (
                             <>
                               <Loader2 className="w-7 h-7 animate-spin text-indigo-500 mb-2" />
@@ -1637,18 +1668,18 @@ export default function DocumentList({
               </div>
 
               {scannedMarkdown && (
-                <div className="px-5 py-3.5 border-t border-[#E5E5E3] dark:border-[#2F2F2F] flex justify-end gap-2 shrink-0 bg-[#F7F7F5] dark:bg-[#202020]">
+                <div className="px-5 py-3.5 border-t border-[#E8E8E5] dark:border-[#2F2F2F] flex justify-end gap-2 shrink-0 bg-[#FBFBFA] dark:bg-[#202020]">
                   <button
                     type="button"
                     onClick={() => setShowScanner(false)}
-                    className="min-h-[40px] px-4 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] text-[14px] font-medium"
+                    className="min-h-[40px] px-4 rounded-lg border border-[#E8E8E5] dark:border-[#363636] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[14px] font-medium cursor-pointer transition-colors duration-150"
                   >
                     {t.cancel}
                   </button>
                   <button
                     type="button"
                     onClick={handleSaveScannedDocument}
-                    className="min-h-[40px] px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[14px] font-semibold"
+                    className="min-h-[40px] px-5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[14px] font-semibold cursor-pointer transition-colors duration-150"
                   >
                     {t.saveScannedDoc}
                   </button>

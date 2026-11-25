@@ -637,13 +637,13 @@ export default function App() {
 
   // Shared Sidebar Content (Desktop 1/5 column & Mobile < 768px drawer)
   const renderSidebarInner = (isMobile = false) => (
-    <div className="flex flex-col h-full min-h-0 bg-[#F7F7F5] dark:bg-[#202020] text-[#2F2F2F] dark:text-[#E8E8E6]">
+    <div className="flex flex-col h-full min-h-0 bg-[#FBFBFA] dark:bg-[#202020] text-[#262624] dark:text-[#ECECEA]">
       {/* Brand Header + Collapse Button */}
-      <div className="h-12 px-3 border-b border-[#E5E5E3] dark:border-[#2F2F2F] flex items-center justify-between gap-2 shrink-0">
+      <div className="h-12 px-3 border-b border-[#E8E8E5] dark:border-[#2F2F2F] flex items-center justify-between gap-2 shrink-0">
         <button
           type="button"
           onClick={() => handleNavigate('documents')}
-          className="flex items-center gap-2 min-w-0 font-semibold text-[15px] tracking-tight hover:opacity-80 transition"
+          className="flex items-center gap-2 min-w-0 font-semibold text-[15px] tracking-tight hover:opacity-80 cursor-pointer transition-opacity duration-150"
         >
           <BookMarked className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
           <span className="truncate">{t.appTitle}</span>
@@ -654,7 +654,7 @@ export default function App() {
             type="button"
             onClick={() => setMobileDrawerOpen(false)}
             aria-label={t.closeDrawer}
-            className="touch-target inline-flex items-center justify-center rounded-lg text-[#787774] hover:bg-[#F1F1EF] dark:hover:bg-[#262626]"
+            className="touch-target inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] cursor-pointer transition-colors duration-150"
           >
             <X className="w-4 h-4" />
           </button>
@@ -664,7 +664,7 @@ export default function App() {
             onClick={() => setSidebarCollapsed(true)}
             title={t.collapseSidebar}
             aria-label={t.collapseSidebar}
-            className="p-1.5 rounded-lg text-[#787774] hover:text-[#2F2F2F] dark:hover:text-white hover:bg-[#EBEBE8] dark:hover:bg-[#2C2C2C] transition shrink-0"
+            className="p-1.5 rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150 shrink-0"
           >
             <PanelLeftClose className="w-4 h-4" />
           </button>
@@ -688,7 +688,7 @@ export default function App() {
         aria-label={t.navSectionLabel}
         className="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5 min-h-0"
       >
-        <p className="px-2 pb-1.5 text-[12px] font-semibold uppercase tracking-wider text-[#787774] dark:text-[#9B9A97]">
+        <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97]">
           {t.navSectionLabel}
         </p>
 
@@ -699,17 +699,17 @@ export default function App() {
               key={key}
               type="button"
               onClick={() => handleNavigate(key)}
-              className={`w-full min-h-[38px] px-2.5 rounded-lg flex items-center gap-2.5 text-[14px] font-medium transition text-left ${
+              className={`w-full min-h-[38px] px-2.5 rounded-lg flex items-center gap-2.5 text-[14px] font-medium cursor-pointer transition-colors duration-150 text-left ${
                 isActive
-                  ? 'bg-[#EBEBE8] dark:bg-[#2C2C2C] text-[#191919] dark:text-white font-semibold'
-                  : 'text-[#555552] dark:text-[#B5B4B0] hover:bg-[#F1F1EF] dark:hover:bg-[#262626] hover:text-[#191919] dark:hover:text-white'
+                  ? 'bg-[#F3F3F1] dark:bg-[#2A2A2A] text-[#191919] dark:text-white font-semibold'
+                  : 'text-[#555552] dark:text-[#B5B4B0] hover:bg-[#F3F3F1]/80 dark:hover:bg-[#262626] hover:text-[#191919] dark:hover:text-white'
               }`}
             >
               <Icon
                 className={`w-4 h-4 shrink-0 ${
                   isActive
                     ? 'text-indigo-600 dark:text-indigo-400'
-                    : 'text-[#787774] dark:text-[#9B9A97]'
+                    : 'text-[#6B6A66] dark:text-[#9B9A97]'
                 }`}
               />
               <span className="truncate flex-1">{label}</span>
@@ -733,7 +733,7 @@ export default function App() {
       />
 
       {/* 4. Pinned Bottom-Left Settings Gear Icon */}
-      <div className="px-2.5 py-2.5 border-t border-[#E5E5E3] dark:border-[#2F2F2F] shrink-0 flex items-center justify-start">
+      <div className="px-2.5 py-2.5 border-t border-[#E8E8E5] dark:border-[#2F2F2F] shrink-0 flex items-center justify-start">
         <button
           type="button"
           onClick={() => {
@@ -742,7 +742,7 @@ export default function App() {
           }}
           title={t.settingsButton}
           aria-label={t.settingsButton}
-          className="h-10 w-10 rounded-lg inline-flex items-center justify-center text-[#787774] dark:text-[#9B9A97] hover:text-[#2F2F2F] dark:hover:text-white hover:bg-[#EBEBE8] dark:hover:bg-[#2C2C2C] transition"
+          className="h-10 w-10 rounded-lg inline-flex items-center justify-center text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
         >
           <Settings className="w-[18px] h-[18px]" />
         </button>
@@ -756,14 +756,14 @@ export default function App() {
       completedSessionsExternal={pomodoroStats.completedSessions}
       onCompletedSessionsChange={handlePomodoroSessionsChange}
     >
-      <div className="h-[100dvh] w-full flex flex-col overflow-hidden bg-[#FFFFFF] dark:bg-[#191919] text-[15px] text-[#2F2F2F] dark:text-[#E8E8E6]">
+      <div className="h-[100dvh] w-full flex flex-col overflow-hidden bg-[#FFFFFF] dark:bg-[#191919] text-[15px] text-[#262624] dark:text-[#ECECEA]">
         {/* Mobile Top Bar (< 768px) */}
-        <header className="md:hidden no-print shrink-0 h-13 px-3 py-1.5 border-b border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] flex items-center justify-between gap-2">
+        <header className="md:hidden no-print shrink-0 h-13 px-3 py-1.5 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => setMobileDrawerOpen(true)}
             aria-label={t.openMenu}
-            className="touch-target inline-flex items-center justify-center rounded-lg text-[#555552] dark:text-[#C5C4C0] hover:bg-[#EBEBE8] dark:hover:bg-[#2C2C2C]"
+            className="touch-target inline-flex items-center justify-center rounded-lg text-[#555552] dark:text-[#C5C4C0] hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -771,7 +771,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => handleNavigate('documents')}
-            className="flex items-center gap-1.5 font-semibold text-[15px]"
+            className="flex items-center gap-1.5 font-semibold text-[15px] cursor-pointer"
           >
             <BookMarked className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
             <span>{t.appTitle}</span>
@@ -783,6 +783,7 @@ export default function App() {
                 type="button"
                 onClick={() => handleNavigate('pomodoro')}
                 aria-label={t.navPomodoro}
+                className="cursor-pointer"
               >
                 <LivePomodoroBadge compact />
               </button>
@@ -791,7 +792,7 @@ export default function App() {
               type="button"
               onClick={() => setSettingsOpen(true)}
               aria-label={t.settingsButton}
-              className="touch-target inline-flex items-center justify-center rounded-lg text-[#555552] dark:text-[#C5C4C0] hover:bg-[#EBEBE8] dark:hover:bg-[#2C2C2C]"
+              className="touch-target inline-flex items-center justify-center rounded-lg text-[#555552] dark:text-[#C5C4C0] hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
             >
               <Settings className="w-5 h-5" />
             </button>
@@ -802,7 +803,7 @@ export default function App() {
       <div className="flex-1 min-h-0 w-full flex overflow-hidden relative">
         {/* Left Sidebar (1/5 Width = 20%, Collapsible) */}
         <aside
-          className={`hidden md:block no-print h-full min-h-0 shrink-0 overflow-hidden border-[#E5E5E3] dark:border-[#2F2F2F] transition-all duration-200 ease-out ${
+          className={`hidden md:block no-print h-full min-h-0 shrink-0 overflow-hidden border-[#E8E8E5] dark:border-[#2F2F2F] transition-all duration-200 ease-out ${
             sidebarCollapsed ? 'w-0 border-r-0 opacity-0 pointer-events-none' : 'w-1/5 min-w-[230px] border-r opacity-100'
           }`}
         >
@@ -813,13 +814,13 @@ export default function App() {
         <main className="flex-1 h-full min-h-0 min-w-0 flex flex-col overflow-hidden bg-[#FFFFFF] dark:bg-[#191919] relative">
           {/* Desktop Expand Sidebar Toggle (shown cleanly when collapsed) */}
           {sidebarCollapsed && (
-            <div className="hidden md:flex no-print items-center justify-between px-4 py-2 border-b border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5]/70 dark:bg-[#202020]/70 shrink-0 gap-2">
+            <div className="hidden md:flex no-print items-center justify-between px-4 py-2 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA]/85 dark:bg-[#202020]/85 shrink-0 gap-2">
               <button
                 type="button"
                 onClick={() => setSidebarCollapsed(false)}
                 title={t.expandSidebar}
                 aria-label={t.expandSidebar}
-                className="h-8 px-2.5 rounded-lg inline-flex items-center gap-1.5 text-[13px] font-medium text-[#555552] dark:text-[#C5C4C0] hover:text-[#191919] dark:hover:text-white hover:bg-[#EBEBE8] dark:hover:bg-[#2C2C2C] transition"
+                className="h-8 px-2.5 rounded-lg inline-flex items-center gap-1.5 text-[13px] font-medium text-[#555552] dark:text-[#C5C4C0] hover:text-[#191919] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
               >
                 <PanelLeftOpen className="w-4 h-4" />
                 <span>{t.expandSidebar}</span>
@@ -828,7 +829,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleNavigate('pomodoro')}
-                  className="hover:opacity-85 transition"
+                  className="hover:opacity-85 cursor-pointer transition-opacity duration-150"
                 >
                   <LivePomodoroBadge />
                 </button>
@@ -914,11 +915,11 @@ export default function App() {
       {/* Mobile Collapsible Drawer (< 768px) */}
       {mobileDrawerOpen && (
         <div className="md:hidden fixed inset-0 z-40 flex no-print">
-          <div className="w-[82vw] max-w-xs h-[100dvh] shadow-2xl border-r border-[#E5E5E3] dark:border-[#2F2F2F] overflow-hidden">
+          <div className="hd-drawer-in w-[82vw] max-w-xs h-[100dvh] shadow-2xl border-r border-[#E8E8E5] dark:border-[#2F2F2F] overflow-hidden">
             {renderSidebarInner(true)}
           </div>
           <div
-            className="flex-1 bg-black/45 backdrop-blur-[1px]"
+            className="hd-fade-in flex-1 bg-black/45 backdrop-blur-[1px]"
             onClick={() => setMobileDrawerOpen(false)}
           />
         </div>
@@ -946,14 +947,14 @@ export default function App() {
       {toast && (
         <div
           role="status"
-          className={`no-print fixed bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-md w-[92vw] sm:w-auto px-4 py-2.5 rounded-xl shadow-xl border flex items-center gap-2.5 text-[14px] font-medium ${
+          className={`hd-modal-in no-print fixed bottom-5 left-1/2 -translate-x-1/2 z-50 max-w-md w-[92vw] sm:w-auto px-4 py-2.5 rounded-xl shadow-xl border flex items-center gap-2.5 text-[14px] font-medium ${
             toast.type === 'success'
               ? 'bg-emerald-600 text-white border-emerald-500'
               : toast.type === 'error'
                 ? 'bg-rose-600 text-white border-rose-500'
                 : toast.type === 'warning'
                   ? 'bg-amber-500 text-white border-amber-400'
-                  : 'bg-[#262626] text-[#E8E8E6] border-[#3A3A3A]'
+                  : 'bg-[#262626] text-[#ECECEA] border-[#363636]'
           }`}
         >
           {toast.type === 'success' ? (
@@ -967,7 +968,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setToast(null)}
-            className="p-1 rounded-lg hover:bg-black/15"
+            className="p-1 rounded-lg hover:bg-black/15 cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>

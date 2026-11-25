@@ -14,6 +14,7 @@ import {
   Minimize2,
   Share2,
   Printer,
+  Download,
   Edit3,
   Eye,
   Tag,
@@ -61,13 +62,6 @@ const HIGHLIGHT_COLORS = [
   { id: 'clear', hex: null, labelKey: 'colorClearHighlight' },
 ];
 
-/**
- * Strict rehype-sanitize schema that allows ONLY:
- *  - Standard Markdown HTML elements (from defaultSchema)
- *  - `remark-math` class names on `code` / `span` / `div` (before `rehype-katex` runs)
- *  - `<span class="doc-text-color" style="color: #...">`
- *  - `<mark class="doc-highlight" style="background-color: #...">`
- */
 const docSanitizeSchema = {
   ...defaultSchema,
   tagNames: Array.from(new Set([...(defaultSchema.tagNames || []), 'span', 'mark'])),
@@ -128,15 +122,10 @@ function wrapAnnotatedText(selectedText, kind, hex) {
   return `<mark class="doc-highlight" style="background-color: ${hex}">${cleaned}</mark>`;
 }
 
-/**
- * Apply a text color or highlight annotation to a selected phrase inside raw Markdown
- * (used when annotating directly in Read mode). Safely skips fenced code & math blocks.
- */
 function applyAnnotationToMarkdown(markdown, selectedText, kind, hex) {
   const target = selectedText.trim();
   if (!target) return null;
 
-  // Mask fenced code blocks and $$...$$ / $...$ math blocks so we don't corrupt them
   const protectedChunks = [];
   const masked = markdown.replace(
     /```[\s\S]*?```|`[^`\n]+`|\$\$[\s\S]*?\$\$|(?<!\$)\$(?!\$)[^\n$]+?(?<!\$)\$(?!\$)/g,
@@ -150,14 +139,8 @@ function applyAnnotationToMarkdown(markdown, selectedText, kind, hex) {
   const escaped = escapeRegExp(target);
   const existingWrappedRegex =
     kind === 'color'
-      ? new RegExp(
-          `<span\\s+class="doc-text-color"[^>]*>(${escaped})<\\/span>`,
-          'i'
-        )
-      : new RegExp(
-          `<mark\\s+class="doc-highlight"[^>]*>(${escaped})<\\/mark>`,
-          'i'
-        );
+      ? new RegExp(`<span\\s+class="doc-text-color"[^>]*>(${escaped})<\\/span>`, 'i')
+      : new RegExp(`<mark\\s+class="doc-highlight"[^>]*>(${escaped})<\\/mark>`, 'i');
 
   let updated = null;
   if (existingWrappedRegex.test(masked)) {
@@ -196,12 +179,16 @@ export default function DocumentViewer({
   const [tagDraft, setTagDraft] = useState('');
   const [justAutoSaved, setJustAutoSaved] = useState(false);
 
+  // Toolbar dropdown menus ('color' | 'highlight' | null)
+  const [openMenu, setOpenMenu] = useState(null);
+
   // Floating annotation toolbar in Read mode when text is selected
-  const [floatingSelection, setFloatingSelection] = useState(null); // { text, top, left }
+  const [floatingSelection, setFloatingSelection] = useState(null);
 
   const readerScrollRef = useRef(null);
   const articleRef = useRef(null);
   const textareaRef = useRef(null);
+  const toolbarMenuRef = useRef(null);
   const autoSaveTimerRef = useRef(null);
   const docRef = useRef(doc);
 
@@ -213,14 +200,27 @@ export default function DocumentViewer({
     setDraftTitle(doc.title || '');
     setDraftContent(doc.content || '');
     setFloatingSelection(null);
+    setOpenMenu(null);
   }, [doc.id, doc.title, doc.content]);
 
   useEffect(() => {
     setIsEditing(initialEditMode);
     setFloatingSelection(null);
+    setOpenMenu(null);
   }, [initialEditMode, doc.id]);
 
-  // Persist chosen document font in localStorage
+  // Close toolbar color/highlight dropdown when clicking outside
+  useEffect(() => {
+    if (!openMenu) return;
+    const handleClickOutside = (e) => {
+      if (toolbarMenuRef.current && !toolbarMenuRef.current.contains(e.target)) {
+        setOpenMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [openMenu]);
+
   useEffect(() => {
     try {
       localStorage.setItem(FONT_STORAGE_KEY, fontId);
@@ -234,7 +234,6 @@ export default function DocumentViewer({
     [fontId]
   );
 
-  // Escape exits fullscreen reader
   useEffect(() => {
     if (!isFullscreen) return;
     const onKey = (e) => {
@@ -260,7 +259,6 @@ export default function DocumentViewer({
     return () => el.removeEventListener('wheel', handleWheel);
   }, []);
 
-  // Debounced auto-save while editing in Edit mode (persists to localStorage + triggers Cloud Sync)
   const scheduleAutoSave = useCallback(
     (nextTitle, nextContent) => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
@@ -295,7 +293,6 @@ export default function DocumentViewer({
     setIsEditing(false);
   };
 
-  // Apply text color or highlight in Edit Mode (textarea selection)
   const applyFormatInEditor = (kind, hex) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -320,6 +317,7 @@ export default function DocumentViewer({
     });
     setJustAutoSaved(true);
     setTimeout(() => setJustAutoSaved(false), 1400);
+    setOpenMenu(null);
 
     requestAnimationFrame(() => {
       textarea.focus();
@@ -327,7 +325,6 @@ export default function DocumentViewer({
     });
   };
 
-  // Detect text selection in Read Mode to display floating color/highlight palette
   const handleReaderMouseUp = () => {
     if (isEditing) return;
     const selection = window.getSelection();
@@ -359,23 +356,23 @@ export default function DocumentViewer({
       12,
       rect.top - containerRect.top + (readerScrollRef.current?.scrollTop || 0) - 52
     );
-    const left = Math.min(
-      Math.max(16, rect.left - containerRect.left + rect.width / 2),
-      containerRect.width - 16
-    );
+    // Keep floating toolbar safely inside container bounds even on 375px mobile screens
+    const halfToolbar = Math.min(185, containerRect.width / 2 - 12);
+    const rawCenter = rect.left - containerRect.left + rect.width / 2;
+    const left = Math.min(Math.max(halfToolbar + 8, rawCenter), containerRect.width - halfToolbar - 8);
 
     setFloatingSelection({ text, top, left });
   };
 
-  // Apply annotation directly from floating palette in Read Mode
   const applyFormatInReader = (kind, hex) => {
-    if (!floatingSelection?.text) return;
-    const updatedMarkdown = applyAnnotationToMarkdown(
-      doc.content || '',
-      floatingSelection.text,
-      kind,
-      hex
-    );
+    const selectedStr =
+      floatingSelection?.text || window.getSelection()?.toString().trim() || '';
+    if (!selectedStr) {
+      onNotify(t.selectTextToFormat, 'info');
+      setOpenMenu(null);
+      return;
+    }
+    const updatedMarkdown = applyAnnotationToMarkdown(doc.content || '', selectedStr, kind, hex);
 
     if (updatedMarkdown !== null) {
       setDraftContent(updatedMarkdown);
@@ -392,6 +389,15 @@ export default function DocumentViewer({
 
     window.getSelection()?.removeAllRanges();
     setFloatingSelection(null);
+    setOpenMenu(null);
+  };
+
+  const applyFormatFromToolbar = (kind, hex) => {
+    if (isEditing) {
+      applyFormatInEditor(kind, hex);
+    } else {
+      applyFormatInReader(kind, hex);
+    }
   };
 
   const handleAddTag = (e) => {
@@ -440,8 +446,22 @@ export default function DocumentViewer({
     }
   };
 
+  const handleExportMd = () => {
+    const content = isEditing ? draftContent : doc.content || '';
+    const title = (isEditing ? draftTitle : doc.title || 'document').trim() || 'document';
+    const safeFilename = title.replace(/[^a-zA-Z0-9\u00C0-\u024F\u1E00-\u1EFF_-]+/g, '-').slice(0, 60);
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeFilename || 'document'}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleExportPdf = () => {
     setFloatingSelection(null);
+    setOpenMenu(null);
     if (isEditing) {
       handleSaveEdits();
       setTimeout(() => window.print(), 120);
@@ -455,12 +475,10 @@ export default function DocumentViewer({
     { year: 'numeric', month: 'short', day: 'numeric' }
   );
 
-  // Reusable Color & Highlight Swatch Strip (used in Edit bar & Read floating popover)
   const renderAnnotationPalette = (onSelectColor, onSelectHighlight, compact = false) => (
     <div className="flex flex-wrap items-center gap-2">
-      {/* Text Color Swatches (6) */}
       <div className="inline-flex items-center gap-1" role="group" aria-label={t.textColorLabel}>
-        <Palette className="w-3.5 h-3.5 text-[#787774] mr-0.5 shrink-0" />
+        <Palette className="w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97] mr-0.5 shrink-0" />
         {TEXT_COLORS.map((c) => (
           <button
             key={c.id}
@@ -471,28 +489,27 @@ export default function DocumentViewer({
             aria-label={`${t.textColorLabel}: ${t[c.labelKey]}`}
             className={`${
               compact ? 'w-6 h-6' : 'w-7 h-7'
-            } rounded-md border border-[#E5E5E3] dark:border-[#3A3A3A] hover:scale-110 flex items-center justify-center transition bg-[#FFFFFF] dark:bg-[#191919]`}
+            } rounded-lg border border-[#E8E8E5] dark:border-[#3A3A3A] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] flex items-center justify-center transition-colors duration-150 bg-[#FFFFFF] dark:bg-[#191919] cursor-pointer`}
           >
             {c.hex ? (
               <span className="text-[12px] font-bold leading-none" style={{ color: c.hex }}>
                 A
               </span>
             ) : (
-              <Ban className="w-3.5 h-3.5 text-[#787774]" />
+              <Ban className="w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97]" />
             )}
           </button>
         ))}
       </div>
 
-      <span className="h-4 w-px bg-[#E5E5E3] dark:bg-[#3A3A3A]" />
+      <span className="h-4 w-px bg-[#E8E8E5] dark:bg-[#2F2F2F]" />
 
-      {/* Highlight Swatches (5) */}
       <div
         className="inline-flex items-center gap-1"
         role="group"
         aria-label={t.highlightColorLabel}
       >
-        <Highlighter className="w-3.5 h-3.5 text-[#787774] mr-0.5 shrink-0" />
+        <Highlighter className="w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97] mr-0.5 shrink-0" />
         {HIGHLIGHT_COLORS.map((h) => (
           <button
             key={h.id}
@@ -503,17 +520,16 @@ export default function DocumentViewer({
             aria-label={`${t.highlightColorLabel}: ${t[h.labelKey]}`}
             className={`${
               compact ? 'w-6 h-6' : 'w-7 h-7'
-            } rounded-md border border-[#D3D3CF] dark:border-[#3A3A3A] hover:scale-110 flex items-center justify-center transition`}
+            } rounded-lg border border-[#D8D8D4] dark:border-[#3A3A3A] hover:opacity-85 flex items-center justify-center transition-opacity duration-150 cursor-pointer`}
             style={{ backgroundColor: h.hex || 'transparent' }}
           >
-            {!h.hex && <Ban className="w-3.5 h-3.5 text-[#787774]" />}
+            {!h.hex && <Ban className="w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97]" />}
           </button>
         ))}
       </div>
     </div>
   );
 
-  // Proportional paper width & font scaling strictly isolated to the inner document paper
   const scaledFontPx = (15 * zoom) / 100;
   const scaledPaperMaxWidthPx = Math.round(768 * Math.max(1, zoom / 100));
 
@@ -523,9 +539,9 @@ export default function DocumentViewer({
         isFullscreen ? 'fixed inset-0 z-40' : ''
       }`}
     >
-      {/* Top Reader & Editor Toolbar (stays fixed at 100% UI scale) */}
-      <div className="no-print px-3.5 sm:px-6 py-2 border-b border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#FFFFFF]/95 dark:bg-[#191919]/95 backdrop-blur flex flex-wrap items-center justify-between gap-2 shrink-0">
-        {/* Left: Back + Saved pill */}
+      {/* Clean Horizontal Document Toolbar (stays fixed at 100% UI scale) */}
+      <div className="no-print px-3 sm:px-5 py-2 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF]/95 dark:bg-[#191919]/95 backdrop-blur flex flex-wrap items-center justify-between gap-2 shrink-0">
+        {/* Left: Back + Auto-saved pill */}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -534,37 +550,40 @@ export default function DocumentViewer({
               setIsFullscreen(false);
               onBack();
             }}
-            className="min-h-[36px] px-2.5 rounded-lg hover:bg-[#F1F1EF] dark:hover:bg-[#262626] text-[#555552] dark:text-[#C5C4C0] text-[13px] font-medium inline-flex items-center gap-1.5 transition"
+            className="h-9 px-2.5 rounded-lg hover:bg-[#F3F3F1] dark:hover:bg-[#262626] text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-[#ECECEA] text-[13px] font-medium inline-flex items-center gap-1.5 transition-colors duration-150 cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
             <span className="hidden sm:inline">{t.backToList}</span>
           </button>
 
           {justAutoSaved && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[12px] font-medium">
+            <span className="hd-fade-in inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-[12px] font-medium">
               <Check className="w-3 h-3" />
               {t.autoSavedLabel}
             </span>
           )}
         </div>
 
-        {/* Right: Font Selector + Localized Zoom Bar + Edit/Read + Fullscreen + Share + PDF */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/* 5 Selectable Document Fonts */}
-          <div className="inline-flex items-center gap-1 rounded-lg border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] px-2 h-[36px]">
-            <TypeIcon className="w-3.5 h-3.5 text-[#787774] shrink-0" />
+        {/* Right: Organized Control Groups */}
+        <div
+          ref={toolbarMenuRef}
+          className="flex flex-wrap items-center gap-1.5"
+        >
+          {/* Group 1: Font + Localized Zoom */}
+          <div className="inline-flex items-center gap-1 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] px-2 h-9">
+            <TypeIcon className="w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97] shrink-0" />
             <select
               value={fontId}
               onChange={(e) => setFontId(e.target.value)}
               aria-label={t.fontFamilyLabel}
               title={t.fontFamilyLabel}
-              className="bg-transparent text-[13px] font-medium text-[#2F2F2F] dark:text-[#E8E8E6] focus:outline-none cursor-pointer pr-1 max-w-[145px]"
+              className="bg-transparent text-[13px] font-medium text-[#262624] dark:text-[#ECECEA] focus:outline-none cursor-pointer pr-1 max-w-[138px]"
             >
               {DOCUMENT_FONTS.map((f) => (
                 <option
                   key={f.id}
                   value={f.id}
-                  className="bg-[#FFFFFF] dark:bg-[#262626] text-[#2F2F2F] dark:text-[#E8E8E6]"
+                  className="bg-[#FFFFFF] dark:bg-[#262626] text-[#262624] dark:text-[#ECECEA]"
                 >
                   {f.label}
                 </option>
@@ -572,10 +591,9 @@ export default function DocumentViewer({
             </select>
           </div>
 
-          {/* Localized Zoom Control Bar (70% - 200%, 10% steps + Reset) */}
           <div
             title={t.zoomWheelHint}
-            className="inline-flex items-center rounded-lg border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] overflow-hidden"
+            className="inline-flex items-center rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] overflow-hidden h-9"
           >
             <button
               type="button"
@@ -583,11 +601,11 @@ export default function DocumentViewer({
               onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - ZOOM_STEP))}
               title={t.zoomOut}
               aria-label={t.zoomOut}
-              className="h-[36px] w-[32px] inline-flex items-center justify-center hover:bg-[#EBEBE8] dark:hover:bg-[#2F2F2F] disabled:opacity-35 transition"
+              className="h-full w-8 inline-flex items-center justify-center hover:bg-[#F3F3F1] dark:hover:bg-[#262626] disabled:opacity-35 transition-colors duration-150 cursor-pointer"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="px-2 text-[12px] font-semibold tabular-nums select-none min-w-[44px] text-center">
+            <span className="px-1.5 text-[12px] font-semibold tabular-nums select-none min-w-[42px] text-center text-[#262624] dark:text-[#ECECEA]">
               {zoom}%
             </span>
             <button
@@ -596,7 +614,7 @@ export default function DocumentViewer({
               onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + ZOOM_STEP))}
               title={t.zoomIn}
               aria-label={t.zoomIn}
-              className="h-[36px] w-[32px] inline-flex items-center justify-center hover:bg-[#EBEBE8] dark:hover:bg-[#2F2F2F] disabled:opacity-35 transition"
+              className="h-full w-8 inline-flex items-center justify-center hover:bg-[#F3F3F1] dark:hover:bg-[#262626] disabled:opacity-35 transition-colors duration-150 cursor-pointer"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
@@ -606,7 +624,7 @@ export default function DocumentViewer({
                 onClick={() => setZoom(100)}
                 title={t.resetZoom}
                 aria-label={t.resetZoom}
-                className="h-[36px] px-2 border-l border-[#E5E5E3] dark:border-[#2F2F2F] text-[12px] font-medium text-[#787774] hover:text-[#2F2F2F] dark:hover:text-white hover:bg-[#EBEBE8] dark:hover:bg-[#2F2F2F] inline-flex items-center gap-1 transition"
+                className="h-full px-2 border-l border-[#E8E8E5] dark:border-[#2F2F2F] text-[12px] font-medium text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#262626] inline-flex items-center gap-1 transition-colors duration-150 cursor-pointer"
               >
                 <RotateCcw className="w-3 h-3" />
                 <span className="hidden xl:inline">{t.resetZoom}</span>
@@ -614,14 +632,93 @@ export default function DocumentViewer({
             )}
           </div>
 
-          {/* Edit / Read Mode Toggle */}
+          <span className="hidden sm:inline-block h-5 w-px bg-[#E8E8E5] dark:bg-[#2F2F2F] mx-0.5" />
+
+          {/* Group 2: Text Color, Highlight & Edit Toggle */}
+          <div className="relative inline-flex items-center gap-1">
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setOpenMenu((m) => (m === 'color' ? null : 'color'))}
+              title={t.textColorLabel}
+              aria-label={t.textColorLabel}
+              aria-expanded={openMenu === 'color'}
+              className={`h-9 w-9 rounded-lg border inline-flex items-center justify-center transition-colors duration-150 cursor-pointer ${
+                openMenu === 'color'
+                  ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                  : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
+              }`}
+            >
+              <Palette className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setOpenMenu((m) => (m === 'highlight' ? null : 'highlight'))}
+              title={t.highlightColorLabel}
+              aria-label={t.highlightColorLabel}
+              aria-expanded={openMenu === 'highlight'}
+              className={`h-9 w-9 rounded-lg border inline-flex items-center justify-center transition-colors duration-150 cursor-pointer ${
+                openMenu === 'highlight'
+                  ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                  : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
+              }`}
+            >
+              <Highlighter className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Anchored Swatch Dropdown Popover */}
+            {openMenu && (
+              <div
+                onMouseDown={(e) => e.preventDefault()}
+                className="hd-modal-in absolute right-0 top-11 z-40 rounded-xl border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#262626] shadow-xl p-2.5 min-w-[208px]"
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97] mb-2 px-0.5">
+                  {openMenu === 'color' ? t.textColorLabel : t.highlightColorLabel}
+                </p>
+                <div className="flex items-center gap-1.5">
+                  {(openMenu === 'color' ? TEXT_COLORS : HIGHLIGHT_COLORS).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => applyFormatFromToolbar(openMenu, item.hex)}
+                      title={t[item.labelKey]}
+                      aria-label={t[item.labelKey]}
+                      className="w-7 h-7 rounded-lg border border-[#E8E8E5] dark:border-[#3A3A3A] hover:ring-2 hover:ring-indigo-500/40 flex items-center justify-center transition cursor-pointer"
+                      style={
+                        openMenu === 'highlight'
+                          ? { backgroundColor: item.hex || 'transparent' }
+                          : undefined
+                      }
+                    >
+                      {openMenu === 'color' ? (
+                        item.hex ? (
+                          <span className="text-[13px] font-bold" style={{ color: item.hex }}>
+                            A
+                          </span>
+                        ) : (
+                          <Ban className="w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97]" />
+                        )
+                      ) : !item.hex ? (
+                        <Ban className="w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97]" />
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={() => (isEditing ? handleSaveEdits() : setIsEditing(true))}
-            className={`min-h-[36px] px-3 rounded-lg text-[13px] font-medium inline-flex items-center gap-1.5 border transition ${
+            aria-pressed={isEditing}
+            title={isEditing ? t.previewMarkdown : t.editMarkdown}
+            className={`h-9 px-3 rounded-lg text-[13px] font-medium inline-flex items-center gap-1.5 border transition-colors duration-150 cursor-pointer ${
               isEditing
                 ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
-                : 'border-[#E5E5E3] dark:border-[#2F2F2F] hover:bg-[#F1F1EF] dark:hover:bg-[#262626]'
+                : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
             }`}
           >
             {isEditing ? <Eye className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
@@ -630,13 +727,20 @@ export default function DocumentViewer({
             </span>
           </button>
 
-          {/* Fullscreen Toggle */}
+          <span className="hidden sm:inline-block h-5 w-px bg-[#E8E8E5] dark:bg-[#2F2F2F] mx-0.5" />
+
+          {/* Group 3: Fullscreen, Share, Export MD & Export PDF */}
           <button
             type="button"
             onClick={() => setIsFullscreen((prev) => !prev)}
             title={isFullscreen ? t.exitFullscreen : t.fullscreen}
             aria-label={isFullscreen ? t.exitFullscreen : t.fullscreen}
-            className="h-[36px] w-[36px] inline-flex items-center justify-center rounded-lg border border-[#E5E5E3] dark:border-[#2F2F2F] hover:bg-[#F1F1EF] dark:hover:bg-[#262626] transition"
+            aria-pressed={isFullscreen}
+            className={`h-9 w-9 inline-flex items-center justify-center rounded-lg border transition-colors duration-150 cursor-pointer ${
+              isFullscreen
+                ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
+            }`}
           >
             {isFullscreen ? (
               <Minimize2 className="w-3.5 h-3.5" />
@@ -645,23 +749,33 @@ export default function DocumentViewer({
             )}
           </button>
 
-          {/* Share */}
           <button
             type="button"
             onClick={handleShare}
             title={t.shareDoc}
-            className="h-[36px] px-2.5 inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#E5E5E3] dark:border-[#2F2F2F] hover:bg-[#F1F1EF] dark:hover:bg-[#262626] text-[13px] font-medium transition"
+            aria-label={t.shareDoc}
+            className="h-9 w-9 xl:w-auto xl:px-2.5 inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] text-[13px] font-medium transition-colors duration-150 cursor-pointer"
           >
             <Share2 className="w-3.5 h-3.5" />
             <span className="hidden xl:inline">{t.shareDoc}</span>
           </button>
 
-          {/* Export PDF / Print */}
+          <button
+            type="button"
+            onClick={handleExportMd}
+            title={t.exportMd}
+            aria-label={t.exportMd}
+            className="h-9 px-2.5 inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] text-[13px] font-medium transition-colors duration-150 cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">{t.exportMd}</span>
+          </button>
+
           <button
             type="button"
             onClick={handleExportPdf}
             title={t.exportPdf}
-            className="h-[36px] px-3 inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#2F2F2F] hover:bg-[#191919] dark:bg-[#E8E8E6] dark:hover:bg-white text-white dark:text-[#191919] text-[13px] font-semibold transition"
+            className="h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#262624] hover:bg-[#191919] dark:bg-[#ECECEA] dark:hover:bg-white text-white dark:text-[#191919] text-[13px] font-semibold transition-colors duration-150 cursor-pointer"
           >
             <Printer className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">{t.exportPdf}</span>
@@ -669,15 +783,15 @@ export default function DocumentViewer({
         </div>
       </div>
 
-      {/* Formatting Bar when in Edit Mode (always accessible for text color & highlight) */}
+      {/* Inline Formatting Bar when in Edit Mode */}
       {isEditing && (
-        <div className="no-print px-4 sm:px-6 py-2 border-b border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] flex flex-wrap items-center justify-between gap-2 shrink-0">
+        <div className="no-print px-4 sm:px-6 py-2 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] flex flex-wrap items-center justify-between gap-2 shrink-0">
           {renderAnnotationPalette(
             (hex) => applyFormatInEditor('color', hex),
             (hex) => applyFormatInEditor('highlight', hex),
             false
           )}
-          <span className="text-[12px] text-[#787774] dark:text-[#9B9A97] hidden lg:inline">
+          <span className="text-[12px] text-[#6B6A66] dark:text-[#9B9A97] hidden lg:inline">
             {t.annotateHint}
           </span>
         </div>
@@ -690,7 +804,7 @@ export default function DocumentViewer({
         onScroll={() => floatingSelection && setFloatingSelection(null)}
         className="relative flex-1 overflow-y-auto overflow-x-auto px-5 sm:px-10 lg:px-14 py-7 min-h-0"
       >
-        {/* Floating Notion-Style Color & Highlight Popover (on text selection in Read Mode) */}
+        {/* Floating Notion-Style Color & Highlight Popover (Read Mode text selection) */}
         {!isEditing && floatingSelection && (
           <div
             style={{
@@ -699,7 +813,7 @@ export default function DocumentViewer({
               transform: 'translateX(-50%)',
             }}
             onMouseDown={(e) => e.preventDefault()}
-            className="no-print absolute z-30 rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E5E5E3] dark:border-[#3A3A3A] shadow-xl px-2.5 py-1.5"
+            className="no-print hd-modal-in absolute z-30 max-w-[calc(100%-24px)] rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#3A3A3A] shadow-xl px-2.5 py-1.5"
           >
             {renderAnnotationPalette(
               (hex) => applyFormatInReader('color', hex),
@@ -709,7 +823,7 @@ export default function DocumentViewer({
           </div>
         )}
 
-        {/* Inner Document Paper Container (Localized Zoom + Chosen Document Font) */}
+        {/* Inner Document Paper Container */}
         <article
           ref={articleRef}
           className="print-only-document mx-auto transition-[font-size,max-width] duration-150"
@@ -719,7 +833,7 @@ export default function DocumentViewer({
             maxWidth: `${scaledPaperMaxWidthPx}px`,
           }}
         >
-          <header className="mb-6 pb-4 border-b border-[#E5E5E3] dark:border-[#2F2F2F]">
+          <header className="mb-6 pb-4 border-b border-[#E8E8E5] dark:border-[#2F2F2F]">
             {isEditing ? (
               <input
                 type="text"
@@ -730,15 +844,15 @@ export default function DocumentViewer({
                   scheduleAutoSave(next, draftContent);
                 }}
                 placeholder={t.docTitlePlaceholder}
-                className="w-full px-3 py-2 rounded-xl border border-indigo-400 bg-[#FFFFFF] dark:bg-[#202020] text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 rounded-lg border border-indigo-400 bg-[#FFFFFF] dark:bg-[#202020] text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             ) : (
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#2F2F2F] dark:text-[#E8E8E6]">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#262624] dark:text-[#ECECEA]">
                 {doc.title}
               </h1>
             )}
 
-            <div className="flex flex-wrap items-center gap-2 mt-3 text-[13px] font-sans text-[#787774] dark:text-[#9B9A97]">
+            <div className="flex flex-wrap items-center gap-2 mt-3 text-[13px] font-sans text-[#6B6A66] dark:text-[#9B9A97]">
               <span>
                 {t.updatedLabel}: {formattedDate}
               </span>
@@ -748,14 +862,15 @@ export default function DocumentViewer({
                 {(doc.tags || []).slice(0, MAX_TAGS).map((tag) => (
                   <span
                     key={tag}
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#F1F1EF] dark:bg-[#262626] text-[#555552] dark:text-[#C5C4C0] font-medium text-[12px]"
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-[#F3F3F1] dark:bg-[#262626] text-[#4F4E4B] dark:text-[#C5C4C0] font-medium text-[12px]"
                   >
                     <Tag className="w-3 h-3 text-indigo-500" />
                     {tag}
                     <button
                       type="button"
                       onClick={() => handleRemoveTag(tag)}
-                      className="no-print hover:text-rose-500 ml-0.5"
+                      aria-label={`Remove tag ${tag}`}
+                      className="no-print hover:text-rose-500 ml-0.5 cursor-pointer"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -766,7 +881,7 @@ export default function DocumentViewer({
                   <button
                     type="button"
                     onClick={() => setTagInputOpen(true)}
-                    className="no-print inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-dashed border-[#D3D3CF] dark:border-[#3A3A3A] hover:border-indigo-500 text-[#787774] hover:text-indigo-500 text-[12px] transition"
+                    className="no-print inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border border-dashed border-[#D6D6D2] dark:border-[#3A3A3A] hover:border-indigo-500 text-[#6B6A66] dark:text-[#9B9A97] hover:text-indigo-500 text-[12px] transition-colors duration-150 cursor-pointer"
                   >
                     <Plus className="w-3 h-3" />
                     <span>{t.editTags}</span>
@@ -781,11 +896,11 @@ export default function DocumentViewer({
                       value={tagDraft}
                       onChange={(e) => setTagDraft(e.target.value)}
                       placeholder={t.addTagPlaceholder}
-                      className="w-32 px-2 py-0.5 rounded-md border border-indigo-400 bg-[#FFFFFF] dark:bg-[#202020] text-[12px] focus:outline-none"
+                      className="w-32 px-2 py-0.5 rounded-lg border border-indigo-400 bg-[#FFFFFF] dark:bg-[#202020] text-[12px] focus:outline-none"
                     />
                     <button
                       type="submit"
-                      className="p-1 rounded bg-indigo-600 text-white"
+                      className="p-1 rounded-lg bg-indigo-600 text-white cursor-pointer"
                       title={t.save}
                     >
                       <Check className="w-3 h-3" />
@@ -796,7 +911,7 @@ export default function DocumentViewer({
                         setTagInputOpen(false);
                         setTagDraft('');
                       }}
-                      className="p-1 rounded text-[#787774]"
+                      className="p-1 rounded-lg text-[#6B6A66] cursor-pointer"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -819,7 +934,7 @@ export default function DocumentViewer({
                 }}
                 placeholder={t.markdownPlaceholder}
                 style={{ fontSize: `${scaledFontPx}px`, fontFamily: activeFont.stack }}
-                className="w-full p-4 rounded-xl border border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full p-4 rounded-xl border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <div className="flex justify-end gap-2 font-sans">
                 <button
@@ -830,7 +945,7 @@ export default function DocumentViewer({
                     setDraftContent(doc.content || '');
                     setIsEditing(false);
                   }}
-                  className="min-h-[40px] px-4 rounded-xl border border-[#E5E5E3] dark:border-[#3A3A3A] text-[14px] font-medium inline-flex items-center gap-1.5"
+                  className="h-10 px-4 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] text-[14px] font-medium inline-flex items-center gap-1.5 transition-colors duration-150 cursor-pointer"
                 >
                   <RotateCcw className="w-4 h-4" />
                   <span>{t.cancel}</span>
@@ -838,7 +953,7 @@ export default function DocumentViewer({
                 <button
                   type="button"
                   onClick={handleSaveEdits}
-                  className="min-h-[40px] px-5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[14px] font-semibold inline-flex items-center gap-1.5"
+                  className="h-10 px-5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[14px] font-semibold inline-flex items-center gap-1.5 transition-colors duration-150 cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
                   <span>{t.save}</span>
@@ -847,7 +962,7 @@ export default function DocumentViewer({
             </div>
           ) : (
             <div
-              className="study-markdown text-[#2F2F2F] dark:text-[#E8E8E6]"
+              className="study-markdown text-[#262624] dark:text-[#ECECEA]"
               style={{ fontSize: 'inherit', fontFamily: 'inherit' }}
             >
               <ReactMarkdown

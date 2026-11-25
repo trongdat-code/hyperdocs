@@ -4,6 +4,24 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --hd-canvas: #ffffff;
+  --hd-sidebar: #fbfbfa;
+  --hd-surface: #f3f3f1;
+  --hd-border: #e8e8e5;
+  --hd-ink: #262624;
+  --hd-muted: #6b6a66;
+}
+
+.dark {
+  --hd-canvas: #191919;
+  --hd-sidebar: #202020;
+  --hd-surface: #262626;
+  --hd-border: #2f2f2f;
+  --hd-ink: #ececea;
+  --hd-muted: #9b9a97;
+}
+
 @layer base {
   html,
   body {
@@ -12,12 +30,25 @@
     line-height: 1.6;
     height: 100%;
     overflow: hidden;
+    background-color: var(--hd-canvas);
+    color: var(--hd-ink);
   }
 
   #root {
     height: 100dvh;
     width: 100%;
     overflow: hidden;
+  }
+
+  /* Crisp keyboard accessibility focus ring */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [role='button']:focus-visible {
+    outline: 2px solid #6366f1;
+    outline-offset: 2px;
   }
 }
 
@@ -32,12 +63,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(120, 119, 116, 0.25);
+  background-color: rgba(107, 106, 102, 0.24);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(120, 119, 116, 0.45);
+  background-color: rgba(107, 106, 102, 0.44);
 }
 
 .dark ::-webkit-scrollbar-thumb {
@@ -46,6 +77,85 @@
 
 .dark ::-webkit-scrollbar-thumb:hover {
   background-color: rgba(255, 255, 255, 0.26);
+}
+
+/* Purposeful, sparse UI micro-animations */
+@keyframes hdFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes hdModalIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hdDrawerIn {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.hd-fade-in {
+  animation: hdFadeIn 160ms ease-out both;
+}
+
+.hd-modal-in {
+  animation: hdModalIn 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.hd-drawer-in {
+  animation: hdDrawerIn 210ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 3D Flashcard Flip Mechanics */
+.hd-card-scene {
+  perspective: 1200px;
+}
+
+.hd-card-3d {
+  position: relative;
+  width: 100%;
+  transform-style: preserve-3d;
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hd-card-3d.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.hd-card-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.hd-card-face-back {
+  transform: rotateY(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hd-fade-in,
+  .hd-modal-in,
+  .hd-drawer-in {
+    animation: none !important;
+  }
+
+  .hd-card-3d {
+    transition: none !important;
+  }
 }
 
 /* KaTeX responsive overflow wrappers */
@@ -65,23 +175,19 @@
 /* Notion-scale Markdown document typography (15px base, proportional headings) */
 .study-markdown {
   font-size: 15px;
-  line-height: 1.7;
+  line-height: 1.72;
   word-wrap: break-word;
 }
 
 .study-markdown h1 {
   font-size: 1.85em;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.022em;
   line-height: 1.25;
   margin-top: 0.4em;
   margin-bottom: 0.65em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid #e5e5e3;
-}
-
-.dark .study-markdown h1 {
-  border-bottom-color: #2f2f2f;
+  padding-bottom: 0.32em;
+  border-bottom: 1px solid var(--hd-border);
 }
 
 .study-markdown h2 {
@@ -103,7 +209,7 @@
 
 .study-markdown p {
   margin-top: 0.55em;
-  margin-bottom: 0.75em;
+  margin-bottom: 0.78em;
 }
 
 .study-markdown ul {
@@ -124,33 +230,25 @@
 
 .study-markdown blockquote {
   border-left: 3px solid #6366f1;
-  padding: 0.45em 0.95em;
+  padding: 0.5em 1em;
   margin: 0.9em 0;
-  background-color: #f7f7f5;
-  border-radius: 0 0.45rem 0.45rem 0;
-}
-
-.dark .study-markdown blockquote {
-  background-color: #262626;
+  background-color: var(--hd-sidebar);
+  border-radius: 0 8px 8px 0;
 }
 
 .study-markdown code:not(pre code) {
-  background-color: #f1f1ef;
+  background-color: var(--hd-surface);
   padding: 0.14em 0.38em;
-  border-radius: 0.3rem;
+  border-radius: 5px;
   font-size: 0.88em;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-.dark .study-markdown code:not(pre code) {
-  background-color: #262626;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .study-markdown pre {
   background-color: #202020;
-  color: #e8e8e6;
-  padding: 0.9rem 1.05rem;
-  border-radius: 0.55rem;
+  color: #ececea;
+  padding: 0.95rem 1.1rem;
+  border-radius: 8px;
   overflow-x: auto;
   margin: 0.9rem 0;
   font-size: 0.88em;
@@ -160,47 +258,34 @@
 .study-markdown table {
   width: 100%;
   border-collapse: collapse;
-  margin: 0.9rem 0;
+  margin: 0.95rem 0;
   display: block;
   overflow-x: auto;
 }
 
 .study-markdown th,
 .study-markdown td {
-  border: 1px solid #e5e5e3;
-  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--hd-border);
+  padding: 0.52rem 0.78rem;
   text-align: left;
 }
 
-.dark .study-markdown th,
-.dark .study-markdown td {
-  border-color: #2f2f2f;
-}
-
 .study-markdown th {
-  background-color: #f7f7f5;
+  background-color: var(--hd-sidebar);
   font-weight: 600;
-}
-
-.dark .study-markdown th {
-  background-color: #262626;
 }
 
 .study-markdown hr {
   border: none;
-  border-top: 1px solid #e5e5e3;
+  border-top: 1px solid var(--hd-border);
   margin: 1.35rem 0;
-}
-
-.dark .study-markdown hr {
-  border-top-color: #2f2f2f;
 }
 
 /* Document text color & highlighter annotations */
 .doc-highlight,
 .study-markdown mark {
   padding: 0.08em 0.24em;
-  border-radius: 0.28em;
+  border-radius: 4px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
@@ -273,7 +358,7 @@
   }
 
   .print-only-document pre {
-    background-color: #f7f7f5 !important;
+    background-color: #fbfbfa !important;
     border: 1px solid #d4d4d2 !important;
     white-space: pre-wrap !important;
   }

@@ -99,19 +99,19 @@ export default function TaskManager({
   const itemPad = density === 'compact' ? 'px-2 py-1.5' : 'px-2.5 py-2';
 
   return (
-    <section className="flex flex-col max-h-[50dvh] min-h-0 px-2.5 py-2.5 border-b border-[#E5E5E3] dark:border-[#2F2F2F]">
+    <section className="flex flex-col max-h-[50dvh] min-h-0 px-2.5 py-2.5 border-b border-[#E8E8E5] dark:border-[#2F2F2F]">
       {/* Header */}
       <div className="flex items-center justify-between gap-1.5 mb-2 px-1 shrink-0">
         <div className="flex items-center gap-1.5 min-w-0">
-          <ListTodo className="w-4 h-4 text-[#787774] dark:text-[#9B9A97] shrink-0" />
-          <h2 className="font-semibold text-[13px] uppercase tracking-wider truncate text-[#787774] dark:text-[#9B9A97]">
+          <ListTodo className="w-4 h-4 text-[#6B6A66] dark:text-[#9B9A97] shrink-0" />
+          <h2 className="font-semibold text-[12px] uppercase tracking-wider truncate text-[#6B6A66] dark:text-[#9B9A97]">
             {t.tasksTitle}
           </h2>
         </div>
         <button
           type="button"
           onClick={handleOpenAdd}
-          className="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-[#2F2F2F] hover:bg-[#191919] dark:bg-[#E8E8E6] dark:hover:bg-white text-white dark:text-[#191919] text-[13px] font-medium transition shrink-0"
+          className="inline-flex items-center gap-1 px-2 h-7 rounded-lg bg-[#262624] hover:bg-[#191919] dark:bg-[#ECECEA] dark:hover:bg-white text-white dark:text-[#191919] text-[12px] font-medium cursor-pointer transition-colors duration-150 shrink-0"
           title={t.addTask}
         >
           <Plus className="w-3.5 h-3.5" />
@@ -120,31 +120,31 @@ export default function TaskManager({
       </div>
 
       {/* Tabs: Active vs Done */}
-      <div className="grid grid-cols-2 gap-1 p-0.5 mb-2 rounded-lg bg-[#EBEBE8] dark:bg-[#2A2A2A] shrink-0">
+      <div className="grid grid-cols-2 gap-1 p-0.5 mb-2 rounded-lg bg-[#F3F3F1] dark:bg-[#262626] shrink-0">
         <button
           type="button"
           onClick={() => setActiveTab('active')}
-          className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-md text-[13px] font-medium transition ${
+          className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-md text-[12px] font-medium cursor-pointer transition-colors duration-150 ${
             activeTab === 'active'
-              ? 'bg-white dark:bg-[#191919] text-[#2F2F2F] dark:text-[#E8E8E6] shadow-xs'
-              : 'text-[#787774] dark:text-[#9B9A97] hover:text-[#2F2F2F] dark:hover:text-[#E8E8E6]'
+              ? 'bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] shadow-xs'
+              : 'text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-[#ECECEA]'
           }`}
         >
           <span>{t.activeTasks}</span>
-          <span className="text-[12px] opacity-75">{activeTasks.length}</span>
+          <span className="text-[11px] tabular-nums opacity-75">{activeTasks.length}</span>
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('completed')}
-          className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-md text-[13px] font-medium transition ${
+          className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-md text-[12px] font-medium cursor-pointer transition-colors duration-150 ${
             activeTab === 'completed'
-              ? 'bg-white dark:bg-[#191919] text-[#2F2F2F] dark:text-[#E8E8E6] shadow-xs'
-              : 'text-[#787774] dark:text-[#9B9A97] hover:text-[#2F2F2F] dark:hover:text-[#E8E8E6]'
+              ? 'bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] shadow-xs'
+              : 'text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-[#ECECEA]'
           }`}
         >
           <History className="w-3 h-3" />
           <span>{t.completedHistory}</span>
-          <span className="text-[12px] opacity-75">{completedTasks.length}</span>
+          <span className="text-[11px] tabular-nums opacity-75">{completedTasks.length}</span>
         </button>
       </div>
 
@@ -152,7 +152,7 @@ export default function TaskManager({
       <div className="overflow-y-auto space-y-1 pr-0.5 min-h-0">
         {activeTab === 'active' ? (
           activeTasks.length === 0 ? (
-            <p className="text-[13px] text-[#787774] dark:text-[#8E8D8A] text-center py-3 px-2">
+            <p className="text-[13px] text-[#6B6A66] dark:text-[#8E8D8A] text-center py-3 px-2">
               {t.noActiveTasks}
             </p>
           ) : (
@@ -162,10 +162,10 @@ export default function TaskManager({
               return (
                 <div
                   key={task.id}
-                  className={`group rounded-lg ${itemPad} transition border ${
+                  className={`group rounded-lg ${itemPad} transition-colors duration-150 border ${
                     isSelected
-                      ? 'bg-[#FFFFFF] dark:bg-[#262626] border-[#D3D3CF] dark:border-[#3A3A3A]'
-                      : 'border-transparent hover:bg-[#F1F1EF] dark:hover:bg-[#262626]'
+                      ? 'bg-[#FFFFFF] dark:bg-[#262626] border-[#DCDCD8] dark:border-[#363636] shadow-xs'
+                      : 'border-transparent hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
                   }`}
                 >
                   <div className="flex items-start gap-2">
@@ -173,7 +173,7 @@ export default function TaskManager({
                       type="button"
                       onClick={() => onToggleTask(task.id)}
                       aria-label={`${t.completeTaskAria}: ${task.title}`}
-                      className="mt-0.5 w-4 h-4 rounded-[4px] border border-[#BDBCB8] dark:border-[#555553] hover:border-indigo-500 flex items-center justify-center shrink-0 transition"
+                      className="mt-0.5 w-4 h-4 rounded-[4px] border border-[#C6C5C0] dark:border-[#555553] hover:border-indigo-500 flex items-center justify-center shrink-0 cursor-pointer transition-colors duration-150"
                     />
 
                     <div
@@ -194,13 +194,13 @@ export default function TaskManager({
                             !
                           </span>
                         )}
-                        <p className="text-[14px] leading-snug font-medium text-[#2F2F2F] dark:text-[#E8E8E6] break-words line-clamp-2">
+                        <p className="text-[13.5px] leading-snug font-medium text-[#262624] dark:text-[#ECECEA] break-words line-clamp-2">
                           {task.title}
                         </p>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-[12px] text-[#787774] dark:text-[#9B9A97]">
-                        <span className="inline-flex items-center gap-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-[12px] text-[#6B6A66] dark:text-[#9B9A97]">
+                        <span className="inline-flex items-center gap-1 tabular-nums">
                           <Clock className="w-3 h-3" />
                           {t.minutesShort(task.duration)}
                         </span>
@@ -219,15 +219,15 @@ export default function TaskManager({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition shrink-0">
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150 shrink-0">
                       <button
                         type="button"
                         onClick={() => onSelectTask(task.id)}
                         title={isSelected ? t.selectedForFocus : t.selectForFocus}
-                        className={`p-1 rounded transition ${
+                        className={`p-1 rounded cursor-pointer transition-colors duration-150 ${
                           isSelected
                             ? 'text-indigo-600 dark:text-indigo-400 opacity-100'
-                            : 'text-[#787774] hover:text-[#2F2F2F] dark:hover:text-white'
+                            : 'text-[#6B6A66] hover:text-[#262624] dark:hover:text-white'
                         }`}
                       >
                         <Target className="w-3.5 h-3.5" />
@@ -236,7 +236,7 @@ export default function TaskManager({
                         type="button"
                         onClick={() => onDeleteTask(task.id)}
                         title={t.deleteTask}
-                        className="p-1 rounded text-[#787774] hover:text-rose-600 transition"
+                        className="p-1 rounded text-[#6B6A66] hover:text-rose-600 cursor-pointer transition-colors duration-150"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -247,12 +247,12 @@ export default function TaskManager({
             })
           )
         ) : completedTasks.length === 0 ? (
-          <p className="text-[13px] text-[#787774] dark:text-[#8E8D8A] text-center py-3 px-2">
+          <p className="text-[13px] text-[#6B6A66] dark:text-[#8E8D8A] text-center py-3 px-2">
             {t.noCompletedTasks}
           </p>
         ) : (
           <>
-            <p className="text-[12px] text-[#787774] dark:text-[#8E8D8A] px-1 pb-0.5">
+            <p className="text-[12px] text-[#6B6A66] dark:text-[#8E8D8A] px-1 pb-0.5">
               {t.autoPurgeNotice}
             </p>
             {completedTasks.map((task) => {
@@ -264,19 +264,19 @@ export default function TaskManager({
               return (
                 <div
                   key={task.id}
-                  className={`group rounded-lg ${itemPad} hover:bg-[#F1F1EF] dark:hover:bg-[#262626] transition`}
+                  className={`group rounded-lg ${itemPad} hover:bg-[#F3F3F1] dark:hover:bg-[#262626] transition-colors duration-150`}
                 >
                   <div className="flex items-start gap-2">
                     <button
                       type="button"
                       onClick={() => onToggleTask(task.id)}
                       aria-label={`${t.restoreTaskAria}: ${task.title}`}
-                      className="mt-0.5 w-4 h-4 rounded-[4px] bg-emerald-600 text-white flex items-center justify-center shrink-0"
+                      className="mt-0.5 w-4 h-4 rounded-[4px] bg-emerald-600 text-white flex items-center justify-center shrink-0 cursor-pointer"
                     >
                       <Check className="w-3 h-3 stroke-[3]" />
                     </button>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[14px] leading-snug line-through text-gray-400 dark:text-gray-500 break-words">
+                      <p className="text-[13.5px] leading-snug line-through text-gray-400 dark:text-gray-500 break-words">
                         {task.title}
                       </p>
                       <div className="flex items-center gap-1.5 mt-0.5 text-[12px] text-[#9B9A97]">
@@ -289,7 +289,7 @@ export default function TaskManager({
                       type="button"
                       onClick={() => onDeleteTask(task.id)}
                       title={t.deleteTask}
-                      className="p-1 rounded text-[#787774] hover:text-rose-600 opacity-0 group-hover:opacity-100 transition"
+                      className="p-1 rounded text-[#6B6A66] hover:text-rose-600 opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity duration-150"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -305,16 +305,22 @@ export default function TaskManager({
       {showAddModal &&
         typeof document !== 'undefined' &&
         createPortal(
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4">
-            <div className="w-full max-w-md rounded-2xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E5E5E3] dark:border-[#2F2F2F] shadow-2xl p-5">
+          <div
+            className="hd-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4"
+            onClick={() => setShowAddModal(false)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="hd-modal-in w-full max-w-md rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#2F2F2F] shadow-2xl p-5"
+            >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-[17px] text-[#2F2F2F] dark:text-[#E8E8E6]">
+                <h3 className="font-semibold text-[17px] text-[#262624] dark:text-[#ECECEA]">
                   {t.addTask}
                 </h3>
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="touch-target inline-flex items-center justify-center rounded-lg text-[#787774] hover:bg-[#F1F1EF] dark:hover:bg-[#323232]"
+                  className="touch-target inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] cursor-pointer transition-colors duration-150"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -322,7 +328,7 @@ export default function TaskManager({
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-[13px] font-medium text-[#787774] dark:text-[#9B9A97] mb-1.5">
+                  <label className="block text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97] mb-1.5">
                     {t.taskTitleLabel}
                   </label>
                   <input
@@ -332,16 +338,16 @@ export default function TaskManager({
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder={t.taskTitlePlaceholder}
-                    className="w-full min-h-[42px] px-3 py-2 rounded-lg border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[15px] text-[#2F2F2F] dark:text-[#E8E8E6] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full min-h-[42px] px-3 py-2 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[15px] text-[#262624] dark:text-[#ECECEA] focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   />
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[13px] font-medium text-[#787774] dark:text-[#9B9A97]">
+                    <label className="text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
                       {t.durationLabel}
                     </label>
-                    <span className="text-[13px] font-semibold text-indigo-600 dark:text-indigo-400">
+                    <span className="text-[13px] font-semibold tabular-nums text-indigo-600 dark:text-indigo-400">
                       {duration} min
                     </span>
                   </div>
@@ -362,23 +368,23 @@ export default function TaskManager({
                         key={val}
                         type="button"
                         onClick={() => setDuration(val)}
-                        className={`min-h-[36px] rounded-lg text-[13px] font-medium border transition ${
+                        className={`min-h-[36px] rounded-lg text-[13px] font-medium border cursor-pointer transition-colors duration-150 ${
                           duration === val
-                            ? 'bg-[#2F2F2F] dark:bg-[#E8E8E6] text-white dark:text-[#191919] border-transparent'
-                            : 'border-[#E5E5E3] dark:border-[#3A3A3A] text-[#555552] dark:text-[#C5C4C0] hover:bg-[#F1F1EF] dark:hover:bg-[#323232]'
+                            ? 'bg-[#262624] dark:bg-[#ECECEA] text-white dark:text-[#191919] border-transparent'
+                            : 'border-[#E8E8E5] dark:border-[#363636] text-[#555552] dark:text-[#C5C4C0] hover:bg-[#F3F3F1] dark:hover:bg-[#323232]'
                         }`}
                       >
                         {val}m
                       </button>
                     ))}
                   </div>
-                  <p className="text-[12px] text-[#787774] dark:text-[#8E8D8A] mt-1.5">
+                  <p className="text-[12px] text-[#6B6A66] dark:text-[#8E8D8A] mt-1.5">
                     {t.durationHint}
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-[13px] font-medium text-[#787774] dark:text-[#9B9A97] mb-1.5">
+                  <label className="block text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97] mb-1.5">
                     {t.dueDateLabel}
                   </label>
                   <input
@@ -386,7 +392,7 @@ export default function TaskManager({
                     required
                     value={dueDate}
                     onChange={(e) => setDueDate(e.target.value)}
-                    className="w-full min-h-[42px] px-3 py-2 rounded-lg border border-[#E5E5E3] dark:border-[#3A3A3A] bg-[#FFFFFF] dark:bg-[#191919] text-[14px] text-[#2F2F2F] dark:text-[#E8E8E6] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full min-h-[42px] px-3 py-2 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[14px] text-[#262624] dark:text-[#ECECEA] focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                   />
                 </div>
 
@@ -394,13 +400,13 @@ export default function TaskManager({
                   <button
                     type="button"
                     onClick={() => setShowAddModal(false)}
-                    className="min-h-[40px] px-4 rounded-lg border border-[#E5E5E3] dark:border-[#3A3A3A] text-[#555552] dark:text-[#C5C4C0] text-[14px] font-medium hover:bg-[#F1F1EF] dark:hover:bg-[#323232]"
+                    className="min-h-[40px] px-4 rounded-lg border border-[#E8E8E5] dark:border-[#363636] text-[#555552] dark:text-[#C5C4C0] text-[14px] font-medium hover:bg-[#F3F3F1] dark:hover:bg-[#323232] cursor-pointer transition-colors duration-150"
                   >
                     {t.cancel}
                   </button>
                   <button
                     type="submit"
-                    className="min-h-[40px] px-5 rounded-lg bg-[#2F2F2F] hover:bg-[#191919] dark:bg-[#E8E8E6] dark:hover:bg-white text-white dark:text-[#191919] text-[14px] font-semibold"
+                    className="min-h-[40px] px-5 rounded-lg bg-[#262624] hover:bg-[#191919] dark:bg-[#ECECEA] dark:hover:bg-white text-white dark:text-[#191919] text-[14px] font-semibold cursor-pointer transition-colors duration-150"
                   >
                     {t.saveTask}
                   </button>
