@@ -13,7 +13,6 @@ import {
   Folder,
   FolderOpen,
   ChevronRight,
-  ChevronDown,
   Search,
   Tag,
   Pencil,
@@ -35,15 +34,27 @@ import {
   importPdfFile,
 } from '../../services/importService';
 import { compressImageFile } from '../../utils/documentProcessor';
+import {
+  doesDocMatchQuery,
+  doesFolderMatchQuery,
+  doesTagMatchQuery,
+  normalizeSearchText,
+} from '../../utils/searchUtils';
 import ImportModal from '../ImportModal';
 import ImageCropModal from '../ImageCropModal';
 
 const MAX_TAGS = 3;
+const ALL_DOCS_EXPANDED_KEY = 'hyperdocs_all_docs_expanded';
 
 export default function DocumentList({
   documents,
   folders,
   selectedDocId,
+  searchQuery: controlledSearchQuery,
+  onSearchQueryChange,
+  searchInputRef,
+  allDocsExpanded: controlledAllDocsExpanded,
+  onToggleAllDocsExpanded,
   onOpenDocument,
   onCreateDocument,
   onUpdateDocument,
@@ -57,7 +68,37 @@ export default function DocumentList({
   lang,
   density,
 }) {
-  const [searchQuery, setSearchQuery] = useState('');
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
+  const searchQuery =
+    controlledSearchQuery !== undefined ? controlledSearchQuery : localSearchQuery;
+  const setSearchQuery = onSearchQueryChange || setLocalSearchQuery;
+
+  const [localAllDocsExpanded, setLocalAllDocsExpanded] = useState(() => {
+    try {
+      const saved = localStorage.getItem(ALL_DOCS_EXPANDED_KEY);
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const allDocsExpanded =
+    controlledAllDocsExpanded !== undefined ? controlledAllDocsExpanded : localAllDocsExpanded;
+  const toggleAllDocsAccordion = () => {
+    if (onToggleAllDocsExpanded) {
+      onToggleAllDocsExpanded();
+      return;
+    }
+    setLocalAllDocsExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(ALL_DOCS_EXPANDED_KEY, String(next));
+      } catch {
+        // ignore storage quota error
+      }
+      return next;
+    });
+  };
+
   const [activeTagFilter, setActiveTagFilter] = useState('');
   const [expandedFolderIds, setExpandedFolderIds] = useState(() =>
     folders.length > 0 ? [folders[0].id] : []
@@ -92,8 +133,8 @@ export default function DocumentList({
   const [scannedTags, setScannedTags] = useState(['A4 Scan']);
   const [scannedTagDraft, setScannedTagDraft] = useState('');
 
-  // Unified Import Modal state (Google Docs & PDF Link / File)
-  const [importModalState, setImportModalState] = useState({ open: false, tab: 'gdoc' });
+  // Unified Import Link Modal state (Google Docs + PDF / Google Drive URL auto-detection)
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   // PDF / File Upload & Drag-and-Drop state
   const [pdfStatusMode, setPdfStatusMode] = useState(null); // null | 'ai' | 'local'
@@ -117,20 +158,17 @@ export default function DocumentList({
     );
   }, [documents]);
 
+  const hasActiveSearch = Boolean(normalizeSearchText(searchQuery));
+
   const filteredDocs = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
     return sortedDocs.filter((doc) => {
       const matchesTag = !activeTagFilter || (doc.tags || []).includes(activeTagFilter);
       if (!matchesTag) return false;
-      if (!q) return true;
-      const inTitle = (doc.title || '').toLowerCase().includes(q);
-      const inTags = (doc.tags || []).some((tag) => tag.toLowerCase().includes(q));
-      return inTitle || inTags;
+      return doesDocMatchQuery(doc, searchQuery);
     });
   }, [sortedDocs, searchQuery, activeTagFilter]);
 
   const filteredFolders = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
     return [...folders]
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
       .filter((folder) => {
@@ -140,15 +178,7 @@ export default function DocumentList({
           (folder.tags || []).includes(activeTagFilter) ||
           folderDocs.some((d) => (d.tags || []).includes(activeTagFilter));
         if (!matchesTag) return false;
-        if (!q) return true;
-        const inName = (folder.name || '').toLowerCase().includes(q);
-        const inFolderTags = (folder.tags || []).some((tag) => tag.toLowerCase().includes(q));
-        const inChildDocs = folderDocs.some(
-          (d) =>
-            (d.title || '').toLowerCase().includes(q) ||
-            (d.tags || []).some((tag) => tag.toLowerCase().includes(q))
-        );
-        return inName || inFolderTags || inChildDocs;
+        return doesFolderMatchQuery(folder, folderDocs, searchQuery);
       });
   }, [folders, sortedDocs, searchQuery, activeTagFilter]);
 
@@ -336,9 +366,9 @@ export default function DocumentList({
     await processUploadedFile(file, targetFolders);
   };
 
-  // Unified Import Modal Openers (Google Docs / PDF Link & File)
-  const handleOpenImportModal = (tab = 'gdoc') => {
-    setImportModalState({ open: true, tab });
+  // Unified Import Link Modal Opener (auto-detects Google Docs & PDF / Google Drive links)
+  const handleOpenImportModal = () => {
+    setImportModalOpen(true);
   };
 
   const handleNewNote = () => {
@@ -567,15 +597,29 @@ export default function DocumentList({
               )}
 
               <div className="flex flex-wrap items-center gap-1">
-                {(doc.tags || []).slice(0, MAX_TAGS).map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#F3F3F1] dark:bg-[#2C2C2C] text-[#555552] dark:text-[#C5C4C0] font-medium text-[11.5px]"
-                  >
-                    <Tag className="w-2.5 h-2.5 text-indigo-500" />
-                    {tag}
-                  </span>
-                ))}
+                {(doc.tags || []).slice(0, MAX_TAGS).map((tag) => {
+                  const isTagMatch =
+                    doesTagMatchQuery(tag, searchQuery) || activeTagFilter === tag;
+                  return (
+                    <span
+                      key={tag}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-medium text-[11.5px] transition-colors duration-150 ${
+                        isTagMatch
+                          ? 'bg-amber-200/85 dark:bg-amber-500/30 text-amber-950 dark:text-amber-200 ring-1 ring-amber-400/70 dark:ring-amber-400/50 font-semibold'
+                          : 'bg-[#F3F3F1] dark:bg-[#2C2C2C] text-[#555552] dark:text-[#C5C4C0]'
+                      }`}
+                    >
+                      <Tag
+                        className={`w-2.5 h-2.5 ${
+                          isTagMatch
+                            ? 'text-amber-700 dark:text-amber-300'
+                            : 'text-indigo-500'
+                        }`}
+                      />
+                      {tag}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -659,24 +703,14 @@ export default function DocumentList({
                 <span>{t.newFolder}</span>
               </button>
 
-              {/* Import Google Doc */}
+              {/* Unified Import Link (auto-detects Google Docs & PDF / Google Drive URLs) */}
               <button
                 type="button"
-                onClick={() => handleOpenImportModal('gdoc')}
+                onClick={handleOpenImportModal}
                 className="min-h-[38px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#262626] hover:bg-[#F3F3F1] dark:hover:bg-[#303030] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
                 <Link2 className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-                <span>{t.importGdoc}</span>
-              </button>
-
-              {/* Import PDF (Link / Local File) */}
-              <button
-                type="button"
-                onClick={() => handleOpenImportModal('pdf')}
-                className="min-h-[38px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#262626] hover:bg-[#F3F3F1] dark:hover:bg-[#303030] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
-              >
-                <FileText className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                <span>{t.importPdfButton}</span>
+                <span>{t.importLinkButton}</span>
               </button>
 
               {/* AI A4 OCR Scanner */}
@@ -735,14 +769,36 @@ export default function DocumentList({
           {/* Search & Tag Filter Strip */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-[#6B6A66] dark:text-[#9B9A97] absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-[#6B6A66] dark:text-[#9B9A97] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
+                ref={searchInputRef}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={t.searchDocsPlaceholder}
-                className="w-full min-h-[38px] pl-9 pr-3.5 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] text-[14px] text-[#262624] dark:text-[#ECECEA] placeholder:text-[#9B9A97] focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && searchQuery) {
+                    setSearchQuery('');
+                    e.currentTarget.blur();
+                  }
+                }}
+                placeholder={t.globalSearchPlaceholder}
+                className="w-full min-h-[38px] pl-9 pr-16 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] text-[14px] text-[#262624] dark:text-[#ECECEA] placeholder:text-[#9B9A97] focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
               />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  title={t.clearSearch}
+                  aria-label={t.clearSearch}
+                  className="p-1 rounded-md text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#E8E8E5]/70 dark:hover:bg-[#323232] absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded border border-[#E0E0DC] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#262626] text-[11px] font-medium text-[#9B9A97] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                  Ctrl K
+                </kbd>
+              )}
             </div>
 
             {allTags.length > 0 && (
@@ -782,10 +838,20 @@ export default function DocumentList({
 
               <div className="space-y-1.5">
                 {filteredFolders.map((folder) => {
-                  const isExpanded = expandedFolderIds.includes(folder.id);
-                  const folderDocs = sortedDocs.filter((d) =>
+                  const isExpanded = expandedFolderIds.includes(folder.id) || hasActiveSearch;
+                  const allFolderDocs = sortedDocs.filter((d) =>
                     (d.folderIds || []).includes(folder.id)
                   );
+                  const matchingFolderDocs = allFolderDocs.filter((d) => {
+                    const matchesTag = !activeTagFilter || (d.tags || []).includes(activeTagFilter);
+                    return matchesTag && doesDocMatchQuery(d, searchQuery);
+                  });
+                  const folderDocs =
+                    hasActiveSearch || activeTagFilter
+                      ? matchingFolderDocs.length > 0
+                        ? matchingFolderDocs
+                        : allFolderDocs
+                      : allFolderDocs;
 
                   return (
                     <div
@@ -814,6 +880,7 @@ export default function DocumentList({
                         onClick={() => toggleFolderAccordion(folder.id)}
                         role="button"
                         tabIndex={0}
+                        aria-expanded={isExpanded}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
@@ -824,11 +891,11 @@ export default function DocumentList({
                       >
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           <span className="text-[#6B6A66] dark:text-[#9B9A97] shrink-0">
-                            {isExpanded ? (
-                              <ChevronDown className="w-4 h-4" />
-                            ) : (
-                              <ChevronRight className="w-4 h-4" />
-                            )}
+                            <ChevronRight
+                              className={`w-4 h-4 transition-transform duration-150 ${
+                                isExpanded ? 'rotate-90' : ''
+                              }`}
+                            />
                           </span>
                           {isExpanded ? (
                             <FolderOpen className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -844,15 +911,29 @@ export default function DocumentList({
 
                           {/* Folder Tags (max 3) */}
                           <div className="hidden sm:flex flex-wrap items-center gap-1 ml-1">
-                            {(folder.tags || []).slice(0, MAX_TAGS).map((tag) => (
-                              <span
-                                key={tag}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#343434] text-[#555552] dark:text-[#C5C4C0] text-[11.5px] font-medium"
-                              >
-                                <Tag className="w-2.5 h-2.5 text-amber-500" />
-                                {tag}
-                              </span>
-                            ))}
+                            {(folder.tags || []).slice(0, MAX_TAGS).map((tag) => {
+                              const isTagMatch =
+                                doesTagMatchQuery(tag, searchQuery) || activeTagFilter === tag;
+                              return (
+                                <span
+                                  key={tag}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11.5px] font-medium transition-colors duration-150 ${
+                                    isTagMatch
+                                      ? 'bg-amber-200/85 dark:bg-amber-500/30 border-amber-400/70 dark:border-amber-400/50 text-amber-950 dark:text-amber-200 font-semibold'
+                                      : 'bg-[#FFFFFF] dark:bg-[#262626] border-[#E8E8E5] dark:border-[#343434] text-[#555552] dark:text-[#C5C4C0]'
+                                  }`}
+                                >
+                                  <Tag
+                                    className={`w-2.5 h-2.5 ${
+                                      isTagMatch
+                                        ? 'text-amber-700 dark:text-amber-300'
+                                        : 'text-amber-500'
+                                    }`}
+                                  />
+                                  {tag}
+                                </span>
+                              );
+                            })}
                           </div>
                         </div>
 
@@ -908,23 +989,60 @@ export default function DocumentList({
             </div>
           )}
 
-          {/* 2. All Documents List */}
-          <div className="space-y-2">
-            <h2 className="text-[12px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97] px-1">
-              {t.allDocumentsSectionLabel} ({filteredDocs.length})
-            </h2>
+          {/* 2. Collapsible All Documents Accordion (matches Custom Folders style & persists state) */}
+          {(() => {
+            const isAllDocsOpen = allDocsExpanded || hasActiveSearch;
+            return (
+              <div className="rounded-xl border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] overflow-hidden transition-colors duration-150">
+                <div
+                  onClick={toggleAllDocsAccordion}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isAllDocsOpen}
+                  aria-label={isAllDocsOpen ? t.collapseSection : t.expandSection}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleAllDocsAccordion();
+                    }
+                  }}
+                  className={`group flex items-center justify-between gap-2 ${rowPad} hover:bg-[#F3F3F1] dark:hover:bg-[#262626] cursor-pointer transition-colors duration-150`}
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span className="text-[#6B6A66] dark:text-[#9B9A97] shrink-0">
+                      <ChevronRight
+                        className={`w-4 h-4 transition-transform duration-150 ${
+                          isAllDocsOpen ? 'rotate-90' : ''
+                        }`}
+                      />
+                    </span>
+                    <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                    <span className="font-semibold text-[15px] text-[#262624] dark:text-[#ECECEA] truncate">
+                      {t.allDocumentsSectionLabel}
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-[#F3F3F1] dark:bg-[#2C2C2C] text-[#6B6A66] dark:text-[#9B9A97] text-[12px] font-medium tabular-nums shrink-0">
+                      {filteredDocs.length}
+                    </span>
+                  </div>
+                </div>
 
-            {filteredDocs.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA]/50 dark:bg-[#202020]/50 p-10 text-center text-[#6B6A66] dark:text-[#9B9A97]">
-                <FileText className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-[15px]">{t.noDocsFound}</p>
+                {isAllDocsOpen && (
+                  <div className="border-t border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF]/80 dark:bg-[#191919] p-2.5 sm:p-3">
+                    {filteredDocs.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA]/50 dark:bg-[#202020]/50 p-8 text-center text-[#6B6A66] dark:text-[#9B9A97]">
+                        <FileText className="w-7 h-7 mx-auto mb-2 opacity-40" />
+                        <p className="text-[14px]">{t.noDocsFound}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {filteredDocs.map((doc) => renderDocumentRow(doc, false))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="space-y-1.5">
-                {filteredDocs.map((doc) => renderDocumentRow(doc, false))}
-              </div>
-            )}
-          </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -1273,12 +1391,11 @@ export default function DocumentList({
           document.body
         )}
 
-      {/* Unified Import Modal (Google Docs + PDF Link / Local File) */}
+      {/* Unified Import Link Modal (Auto-detects Google Docs + PDF / Google Drive URLs) */}
       <ImportModal
-        isOpen={importModalState.open}
-        initialTab={importModalState.tab}
+        isOpen={importModalOpen}
         folders={folders}
-        onClose={() => setImportModalState((prev) => ({ ...prev, open: false }))}
+        onClose={() => setImportModalOpen(false)}
         onCreateDocument={onCreateDocument}
         onNotify={onNotify}
         t={t}

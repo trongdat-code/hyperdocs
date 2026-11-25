@@ -13,6 +13,11 @@ import {
   Layers,
   FileQuestion,
   Settings,
+  Search,
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  Tag,
 } from 'lucide-react';
 import TaskManager from './components/left/TaskManager';
 import FocusMode from './components/left/FocusMode';
@@ -37,6 +42,14 @@ import {
   syncWorkspaceBidirectional,
   upsertCloudWorkspace,
 } from './utils/cloudSync';
+import {
+  doesDocMatchQuery,
+  doesFolderMatchQuery,
+  doesTagMatchQuery,
+  normalizeSearchText,
+} from './utils/searchUtils';
+
+const ALL_DOCS_EXPANDED_KEY = 'hyperdocs_all_docs_expanded';
 
 function LivePomodoroBadge({ compact = false }) {
   const { isRunning, timeLeft, mode } = usePomodoro();
@@ -99,6 +112,94 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Global Search & Collapsible "All Documents" / Sidebar Folder Sections
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [allDocsExpanded, setAllDocsExpanded] = useState(() => {
+    try {
+      const saved = localStorage.getItem(ALL_DOCS_EXPANDED_KEY);
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const [sidebarExpandedFolderIds, setSidebarExpandedFolderIds] = useState([]);
+
+  const desktopSearchInputRef = useRef(null);
+  const mobileSearchInputRef = useRef(null);
+  const docListSearchInputRef = useRef(null);
+
+  const toggleAllDocsExpanded = useCallback(() => {
+    setAllDocsExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(ALL_DOCS_EXPANDED_KEY, String(next));
+      } catch {
+        // ignore storage quota errors
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleSidebarFolder = useCallback((folderId) => {
+    setSidebarExpandedFolderIds((prev) =>
+      prev.includes(folderId) ? prev.filter((id) => id !== folderId) : [...prev, folderId]
+    );
+  }, []);
+
+  // Global keyboard shortcuts: Ctrl+K / Cmd+K or `/` focuses the global search bar
+  useEffect(() => {
+    const handleGlobalSearchShortcut = (e) => {
+      const key = e.key?.toLowerCase();
+      const isCtrlOrCmdK = (e.ctrlKey || e.metaKey) && key === 'k';
+      const target = e.target;
+      const isTypingField =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable);
+      const isSlashShortcut =
+        e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingField;
+
+      if (!isCtrlOrCmdK && !isSlashShortcut) return;
+
+      e.preventDefault();
+
+      const isDesktop =
+        typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
+
+      if (isDesktop) {
+        if (!sidebarCollapsed && desktopSearchInputRef.current) {
+          desktopSearchInputRef.current.focus();
+          desktopSearchInputRef.current.select();
+          return;
+        }
+        if (activeView === 'documents' && !openDocId && docListSearchInputRef.current) {
+          docListSearchInputRef.current.focus();
+          docListSearchInputRef.current.select();
+          return;
+        }
+        setSidebarCollapsed(false);
+        requestAnimationFrame(() => {
+          desktopSearchInputRef.current?.focus();
+          desktopSearchInputRef.current?.select();
+        });
+      } else {
+        if (activeView === 'documents' && !openDocId && docListSearchInputRef.current) {
+          docListSearchInputRef.current.focus();
+          return;
+        }
+        setMobileDrawerOpen(true);
+        requestAnimationFrame(() => {
+          mobileSearchInputRef.current?.focus();
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalSearchShortcut);
+    return () => window.removeEventListener('keydown', handleGlobalSearchShortcut);
+  }, [sidebarCollapsed, activeView, openDocId]);
 
   // Toast Notification
   const [toast, setToast] = useState(null);
@@ -635,120 +736,365 @@ export default function App() {
     { key: 'quiz', label: t.navQuiz, icon: FileQuestion },
   ];
 
-  // Shared Sidebar Content (Desktop 1/5 column & Mobile < 768px drawer)
-  const renderSidebarInner = (isMobile = false) => (
-    <div className="flex flex-col h-full min-h-0 bg-[#FBFBFA] dark:bg-[#202020] text-[#262624] dark:text-[#ECECEA]">
-      {/* Brand Header + Collapse Button */}
-      <div className="h-12 px-3 border-b border-[#E8E8E5] dark:border-[#2F2F2F] flex items-center justify-between gap-2 shrink-0">
-        <button
-          type="button"
-          onClick={() => handleNavigate('documents')}
-          className="flex items-center gap-2 min-w-0 font-semibold text-[15px] tracking-tight hover:opacity-80 cursor-pointer transition-opacity duration-150"
-        >
-          <BookMarked className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-          <span className="truncate">{t.appTitle}</span>
-        </button>
+  // Global search & sidebar collapsible library filtering (diacritic-friendly across title & tags)
+  const hasGlobalSearch = Boolean(normalizeSearchText(globalSearchQuery));
 
-        {isMobile ? (
-          <button
-            type="button"
-            onClick={() => setMobileDrawerOpen(false)}
-            aria-label={t.closeDrawer}
-            className="touch-target inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] cursor-pointer transition-colors duration-150"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setSidebarCollapsed(true)}
-            title={t.collapseSidebar}
-            aria-label={t.collapseSidebar}
-            className="p-1.5 rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150 shrink-0"
-          >
-            <PanelLeftClose className="w-4 h-4" />
-          </button>
-        )}
-      </div>
-
-      {/* 1. Expandable Task & Deadline Section (Max 50% Viewport Height) */}
-      <TaskManager
-        tasks={tasks}
-        selectedTaskId={selectedTask?.id || null}
-        onSelectTask={setSelectedTaskId}
-        onAddTask={handleAddTask}
-        onToggleTask={handleToggleTask}
-        onDeleteTask={handleDeleteTask}
-        t={t}
-        density={settings.density}
-      />
-
-      {/* 2. Feature Index Links (Clean Single-Line Navigation Items) */}
-      <nav
-        aria-label={t.navSectionLabel}
-        className="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5 min-h-0"
-      >
-        <p className="px-2 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97]">
-          {t.navSectionLabel}
-        </p>
-
-        {navItems.map(({ key, label, icon: Icon }) => {
-          const isActive = activeView === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => handleNavigate(key)}
-              className={`w-full min-h-[38px] px-2.5 rounded-lg flex items-center gap-2.5 text-[14px] font-medium cursor-pointer transition-colors duration-150 text-left ${
-                isActive
-                  ? 'bg-[#F3F3F1] dark:bg-[#2A2A2A] text-[#191919] dark:text-white font-semibold'
-                  : 'text-[#555552] dark:text-[#B5B4B0] hover:bg-[#F3F3F1]/80 dark:hover:bg-[#262626] hover:text-[#191919] dark:hover:text-white'
-              }`}
-            >
-              <Icon
-                className={`w-4 h-4 shrink-0 ${
-                  isActive
-                    ? 'text-indigo-600 dark:text-indigo-400'
-                    : 'text-[#6B6A66] dark:text-[#9B9A97]'
-                }`}
-              />
-              <span className="truncate flex-1">{label}</span>
-              {key === 'pomodoro' && <LivePomodoroBadge />}
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* 3. Account & Cloud Sync Widget (above Settings) */}
-      <CloudSyncWidget
-        user={cloudUser}
-        syncStatus={syncStatus}
-        onOpenAuth={() => {
-          setMobileDrawerOpen(false);
-          setAuthModalOpen(true);
-        }}
-        onSyncNow={handleManualSyncNow}
-        onSignOut={handleSignOut}
-        t={t}
-      />
-
-      {/* 4. Pinned Bottom-Left Settings Gear Icon */}
-      <div className="px-2.5 py-2.5 border-t border-[#E8E8E5] dark:border-[#2F2F2F] shrink-0 flex items-center justify-start">
-        <button
-          type="button"
-          onClick={() => {
-            setMobileDrawerOpen(false);
-            setSettingsOpen(true);
-          }}
-          title={t.settingsButton}
-          aria-label={t.settingsButton}
-          className="h-10 w-10 rounded-lg inline-flex items-center justify-center text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
-        >
-          <Settings className="w-[18px] h-[18px]" />
-        </button>
-      </div>
-    </div>
+  const sidebarSortedDocs = useMemo(
+    () =>
+      [...documents].sort(
+        (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
+      ),
+    [documents]
   );
+
+  const sidebarFilteredDocs = useMemo(
+    () => sidebarSortedDocs.filter((doc) => doesDocMatchQuery(doc, globalSearchQuery)),
+    [sidebarSortedDocs, globalSearchQuery]
+  );
+
+  const sidebarFilteredFolders = useMemo(
+    () =>
+      [...folders]
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+        .filter((folder) => {
+          const folderDocs = sidebarSortedDocs.filter((d) =>
+            (d.folderIds || []).includes(folder.id)
+          );
+          return doesFolderMatchQuery(folder, folderDocs, globalSearchQuery);
+        }),
+    [folders, sidebarSortedDocs, globalSearchQuery]
+  );
+
+  const renderSidebarDocItem = (doc, keyPrefix) => {
+    const isActiveDoc = activeView === 'documents' && openDocId === doc.id;
+    const docTags = (doc.tags || []).slice(0, 3);
+    const matchingTags = hasGlobalSearch
+      ? docTags.filter((tag) => doesTagMatchQuery(tag, globalSearchQuery))
+      : [];
+
+    return (
+      <button
+        key={`${keyPrefix}_${doc.id}`}
+        type="button"
+        onClick={() => handleOpenDocument(doc.id, false)}
+        title={doc.title}
+        className={`w-full px-2 py-1.5 rounded-lg text-left transition-colors duration-150 cursor-pointer flex flex-col gap-1 ${
+          isActiveDoc
+            ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-semibold'
+            : 'text-[#555552] dark:text-[#B5B4B0] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] hover:text-[#191919] dark:hover:text-white'
+        }`}
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          <FileText
+            className={`w-3.5 h-3.5 shrink-0 ${
+              doc.docType === 'pdf-embed'
+                ? 'text-rose-500 dark:text-rose-400'
+                : isActiveDoc
+                  ? 'text-indigo-600 dark:text-indigo-400'
+                  : 'text-[#8E8D8A] dark:text-[#888783]'
+            }`}
+          />
+          <span className="truncate text-[13px] leading-snug flex-1">{doc.title}</span>
+        </div>
+
+        {(matchingTags.length > 0 || (hasGlobalSearch && docTags.length > 0)) && (
+          <div className="flex flex-wrap items-center gap-1 pl-5">
+            {docTags.map((tag) => {
+              const isMatch = doesTagMatchQuery(tag, globalSearchQuery);
+              return (
+                <span
+                  key={tag}
+                  className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10.5px] leading-none font-medium ${
+                    isMatch
+                      ? 'bg-amber-200/85 dark:bg-amber-500/30 text-amber-950 dark:text-amber-200 ring-1 ring-amber-400/70 dark:ring-amber-400/50 font-semibold'
+                      : 'bg-[#EFEFED] dark:bg-[#2E2E2E] text-[#6B6A66] dark:text-[#9B9A97]'
+                  }`}
+                >
+                  <Tag
+                    className={`w-2.5 h-2.5 ${
+                      isMatch ? 'text-amber-700 dark:text-amber-300' : 'text-[#8E8D8A]'
+                    }`}
+                  />
+                  <span className="truncate max-w-[90px]">{tag}</span>
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </button>
+    );
+  };
+
+  // Shared Sidebar Content (Desktop 1/5 column & Mobile < 768px drawer)
+  const renderSidebarInner = (isMobile = false) => {
+    const isAllDocsOpen = allDocsExpanded || hasGlobalSearch;
+
+    return (
+      <div className="flex flex-col h-full min-h-0 bg-[#FBFBFA] dark:bg-[#202020] text-[#262624] dark:text-[#ECECEA]">
+        {/* Brand Header + Collapse Button */}
+        <div className="h-12 px-3 border-b border-[#E8E8E5] dark:border-[#2F2F2F] flex items-center justify-between gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => handleNavigate('documents')}
+            className="flex items-center gap-2 min-w-0 font-semibold text-[15px] tracking-tight hover:opacity-80 cursor-pointer transition-opacity duration-150"
+          >
+            <BookMarked className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <span className="truncate">{t.appTitle}</span>
+          </button>
+
+          {isMobile ? (
+            <button
+              type="button"
+              onClick={() => setMobileDrawerOpen(false)}
+              aria-label={t.closeDrawer}
+              className="touch-target inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] cursor-pointer transition-colors duration-150"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed(true)}
+              title={t.collapseSidebar}
+              aria-label={t.collapseSidebar}
+              className="p-1.5 rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150 shrink-0"
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Global Search Bar (Notion-style, Ctrl+K / `/` shortcut, filters by title & tags) */}
+        <div className="px-2.5 py-2 border-b border-[#E8E8E5] dark:border-[#2F2F2F] shrink-0">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-[#8E8D8A] dark:text-[#9B9A97] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              ref={isMobile ? mobileSearchInputRef : desktopSearchInputRef}
+              type="text"
+              value={globalSearchQuery}
+              onChange={(e) => setGlobalSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  if (globalSearchQuery) {
+                    setGlobalSearchQuery('');
+                  } else {
+                    e.currentTarget.blur();
+                  }
+                } else if (e.key === 'Enter' && hasGlobalSearch && sidebarFilteredDocs.length > 0) {
+                  e.preventDefault();
+                  handleOpenDocument(sidebarFilteredDocs[0].id, false);
+                }
+              }}
+              placeholder={t.globalSearchPlaceholder}
+              title={t.searchShortcutHint}
+              aria-label={t.globalSearchPlaceholder}
+              className="w-full h-8 pl-8 pr-11 rounded-lg border border-[#E8E8E5] dark:border-[#323232] bg-[#FFFFFF] dark:bg-[#191919] text-[12.5px] text-[#262624] dark:text-[#ECECEA] placeholder:text-[#9B9A97] focus:outline-none focus:ring-2 focus:ring-indigo-500/40 transition-colors"
+            />
+            {globalSearchQuery ? (
+              <button
+                type="button"
+                onClick={() => setGlobalSearchQuery('')}
+                title={t.clearSearch}
+                aria-label={t.clearSearch}
+                className="p-0.5 rounded text-[#8E8D8A] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2F2F2F] absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded border border-[#E4E4E0] dark:border-[#343434] bg-[#FBFBFA] dark:bg-[#242424] text-[10px] font-medium text-[#9B9A97] absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                ^K
+              </kbd>
+            )}
+          </div>
+          {hasGlobalSearch && (
+            <div className="mt-1 px-1 flex items-center justify-between text-[11px] text-[#6B6A66] dark:text-[#9B9A97]">
+              <span>{t.searchResultsCount(sidebarFilteredDocs.length)}</span>
+              {activeView !== 'documents' && (
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('documents')}
+                  className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium cursor-pointer"
+                >
+                  {t.navDocuments}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 1. Expandable Task & Deadline Section (Max 50% Viewport Height) */}
+        <TaskManager
+          tasks={tasks}
+          selectedTaskId={selectedTask?.id || null}
+          onSelectTask={setSelectedTaskId}
+          onAddTask={handleAddTask}
+          onToggleTask={handleToggleTask}
+          onDeleteTask={handleDeleteTask}
+          t={t}
+          density={settings.density}
+        />
+
+        {/* 2. Feature Index Links + Collapsible All Documents & Custom Folders */}
+        <nav
+          aria-label={t.navSectionLabel}
+          className="flex-1 overflow-y-auto px-2.5 py-3 space-y-3 min-h-0"
+        >
+          <div className="space-y-0.5">
+            <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97]">
+              {t.navSectionLabel}
+            </p>
+
+            {navItems.map(({ key, label, icon: Icon }) => {
+              const isActive = activeView === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => handleNavigate(key)}
+                  className={`w-full min-h-[36px] px-2.5 rounded-lg flex items-center gap-2.5 text-[14px] font-medium cursor-pointer transition-colors duration-150 text-left ${
+                    isActive
+                      ? 'bg-[#F3F3F1] dark:bg-[#2A2A2A] text-[#191919] dark:text-white font-semibold'
+                      : 'text-[#555552] dark:text-[#B5B4B0] hover:bg-[#F3F3F1]/80 dark:hover:bg-[#262626] hover:text-[#191919] dark:hover:text-white'
+                  }`}
+                >
+                  <Icon
+                    className={`w-4 h-4 shrink-0 ${
+                      isActive
+                        ? 'text-indigo-600 dark:text-indigo-400'
+                        : 'text-[#6B6A66] dark:text-[#9B9A97]'
+                    }`}
+                  />
+                  <span className="truncate flex-1">{label}</span>
+                  {key === 'pomodoro' && <LivePomodoroBadge />}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Collapsible "All Documents" (Tất cả tài liệu) & Custom Folder Accordions */}
+          <div className="pt-2 border-t border-[#E8E8E5] dark:border-[#2F2F2F] space-y-1">
+            {/* Collapsible All Documents Section */}
+            <div>
+              <button
+                type="button"
+                onClick={toggleAllDocsExpanded}
+                aria-expanded={isAllDocsOpen}
+                className="w-full min-h-[34px] px-2 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold text-[#262624] dark:text-[#ECECEA] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] cursor-pointer transition-colors duration-150 text-left"
+              >
+                <ChevronRight
+                  className={`w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97] shrink-0 transition-transform duration-150 ${
+                    isAllDocsOpen ? 'rotate-90' : ''
+                  }`}
+                />
+                <FileText className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span className="truncate flex-1">{t.allDocumentsSectionLabel}</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-[#EFEFED] dark:bg-[#2C2C2C] text-[#6B6A66] dark:text-[#9B9A97] text-[11px] font-medium tabular-nums shrink-0">
+                  {sidebarFilteredDocs.length}
+                </span>
+              </button>
+
+              {isAllDocsOpen && (
+                <div className="mt-0.5 pl-3 space-y-0.5">
+                  {sidebarFilteredDocs.length === 0 ? (
+                    <p className="px-2 py-1.5 text-[12px] text-[#8E8D8A] dark:text-[#888783] italic">
+                      {t.noDocsFound}
+                    </p>
+                  ) : (
+                    sidebarFilteredDocs.map((doc) => renderSidebarDocItem(doc, 'all'))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Collapsible Custom Folder Sections (matching exact expand/collapse style) */}
+            {sidebarFilteredFolders.map((folder) => {
+              const allFolderDocs = sidebarSortedDocs.filter((d) =>
+                (d.folderIds || []).includes(folder.id)
+              );
+              const matchingFolderDocs = hasGlobalSearch
+                ? allFolderDocs.filter((d) => doesDocMatchQuery(d, globalSearchQuery))
+                : allFolderDocs;
+              const visibleFolderDocs =
+                hasGlobalSearch && matchingFolderDocs.length > 0
+                  ? matchingFolderDocs
+                  : allFolderDocs;
+              const isFolderOpen =
+                sidebarExpandedFolderIds.includes(folder.id) || hasGlobalSearch;
+
+              return (
+                <div key={folder.id}>
+                  <button
+                    type="button"
+                    onClick={() => toggleSidebarFolder(folder.id)}
+                    aria-expanded={isFolderOpen}
+                    className="w-full min-h-[34px] px-2 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold text-[#262624] dark:text-[#ECECEA] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] cursor-pointer transition-colors duration-150 text-left"
+                  >
+                    <ChevronRight
+                      className={`w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97] shrink-0 transition-transform duration-150 ${
+                        isFolderOpen ? 'rotate-90' : ''
+                      }`}
+                    />
+                    {isFolderOpen ? (
+                      <FolderOpen className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    ) : (
+                      <Folder className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    )}
+                    <span className="truncate flex-1">{folder.name}</span>
+                    <span className="px-1.5 py-0.5 rounded-full bg-[#EFEFED] dark:bg-[#2C2C2C] text-[#6B6A66] dark:text-[#9B9A97] text-[11px] font-medium tabular-nums shrink-0">
+                      {visibleFolderDocs.length}
+                    </span>
+                  </button>
+
+                  {isFolderOpen && (
+                    <div className="mt-0.5 pl-3 space-y-0.5">
+                      {visibleFolderDocs.length === 0 ? (
+                        <p className="px-2 py-1.5 text-[12px] text-[#8E8D8A] dark:text-[#888783] italic">
+                          {t.emptyFolderHint}
+                        </p>
+                      ) : (
+                        visibleFolderDocs.map((doc) =>
+                          renderSidebarDocItem(doc, `folder_${folder.id}`)
+                        )
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </nav>
+
+        {/* 3. Account & Cloud Sync Widget (above Settings) */}
+        <CloudSyncWidget
+          user={cloudUser}
+          syncStatus={syncStatus}
+          onOpenAuth={() => {
+            setMobileDrawerOpen(false);
+            setAuthModalOpen(true);
+          }}
+          onSyncNow={handleManualSyncNow}
+          onSignOut={handleSignOut}
+          t={t}
+        />
+
+        {/* 4. Pinned Bottom-Left Settings Gear Icon */}
+        <div className="px-2.5 py-2.5 border-t border-[#E8E8E5] dark:border-[#2F2F2F] shrink-0 flex items-center justify-start">
+          <button
+            type="button"
+            onClick={() => {
+              setMobileDrawerOpen(false);
+              setSettingsOpen(true);
+            }}
+            title={t.settingsButton}
+            aria-label={t.settingsButton}
+            className="h-10 w-10 rounded-lg inline-flex items-center justify-center text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
+          >
+            <Settings className="w-[18px] h-[18px]" />
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <PomodoroProvider
@@ -855,6 +1201,11 @@ export default function App() {
                   documents={documents}
                   folders={folders}
                   selectedDocId={activeContextDocument?.id || null}
+                  searchQuery={globalSearchQuery}
+                  onSearchQueryChange={setGlobalSearchQuery}
+                  searchInputRef={docListSearchInputRef}
+                  allDocsExpanded={allDocsExpanded}
+                  onToggleAllDocsExpanded={toggleAllDocsExpanded}
                   onOpenDocument={(id) => handleOpenDocument(id, false)}
                   onCreateDocument={handleCreateDocument}
                   onUpdateDocument={handleUpdateDocument}
