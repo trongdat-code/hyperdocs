@@ -34,7 +34,12 @@ export function formatMMSS(totalSeconds) {
 
 const PomodoroContext = createContext(null);
 
-export function PomodoroProvider({ selectedTask, children }) {
+export function PomodoroProvider({
+  selectedTask,
+  completedSessionsExternal = 0,
+  onCompletedSessionsChange,
+  children,
+}) {
   // Max focus duration strictly capped by selected task's allocated duration (30-60 mins)
   const taskCapMinutes = selectedTask
     ? Math.min(60, Math.max(30, Number(selectedTask.duration) || 45))
@@ -50,7 +55,13 @@ export function PomodoroProvider({ selectedTask, children }) {
   const [timeLeft, setTimeLeft] = useState(Math.min(25, taskCapMinutes) * 60);
   const [isRunning, setIsRunning] = useState(false);
   const [targetEndTime, setTargetEndTime] = useState(null);
-  const [completedSessions, setCompletedSessions] = useState(0);
+  const [completedSessions, setCompletedSessions] = useState(completedSessionsExternal);
+
+  useEffect(() => {
+    setCompletedSessions((prev) =>
+      Math.max(prev, Number(completedSessionsExternal || 0))
+    );
+  }, [completedSessionsExternal]);
 
   const [soundMuted, setSoundMuted] = useState(initialPrefs.soundMuted);
   const [autoTransition, setAutoTransition] = useState(initialPrefs.autoTransition);
@@ -108,6 +119,7 @@ export function PomodoroProvider({ selectedTask, children }) {
       const nextSeconds = getDurationSecondsForMode(nextMode);
 
       setCompletedSessions(nextCompleted);
+      onCompletedSessionsChange?.(nextCompleted);
       setLastCompletedType(nextMode === 'longBreak' ? 'longBreakReady' : 'focus');
       setMode(nextMode);
       setTimeLeft(nextSeconds);
@@ -138,7 +150,7 @@ export function PomodoroProvider({ selectedTask, children }) {
     setTimeout(() => {
       completingRef.current = false;
     }, 100);
-  }, [soundMuted, mode, completedSessions, autoTransition, getDurationSecondsForMode]);
+  }, [soundMuted, mode, completedSessions, autoTransition, getDurationSecondsForMode, onCompletedSessionsChange]);
 
   // Timestamp-based countdown tick (100% accurate across tab switches & background throttling)
   useEffect(() => {

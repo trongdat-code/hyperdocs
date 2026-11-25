@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^3.2.0",
+    "@supabase/supabase-js": "^2.119.2",
     "katex": "^0.16.11",
     "lucide-react": "^0.469.0",
     "mammoth": "^1.13.0",

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Menu,
   X,
@@ -21,6 +21,8 @@ import DocumentList from './components/center/DocumentList';
 import DocumentViewer from './components/center/DocumentViewer';
 import QuizGenerator from './components/right/QuizGenerator';
 import SettingsPanel from './components/right/SettingsPanel';
+import AuthModal from './components/auth/AuthModal';
+import CloudSyncWidget from './components/auth/CloudSyncWidget';
 import {
   KEYS,
   purgeExpiredCompletedTasks,
@@ -28,6 +30,13 @@ import {
 } from './services/storageService';
 import { getTranslator } from './i18n/translations';
 import { formatMMSS, PomodoroProvider, usePomodoro } from './context/PomodoroContext';
+import { isSupabaseConfigured, supabase } from './lib/supabaseClient';
+import {
+  mergeWorkspaces,
+  subscribeToCloudWorkspace,
+  syncWorkspaceBidirectional,
+  upsertCloudWorkspace,
+} from './utils/cloudSync';
 
 function LivePomodoroBadge({ compact = false }) {
   const { isRunning, timeLeft, mode } = usePomodoro();
@@ -65,6 +74,19 @@ export default function App() {
   const [flashcards, setFlashcards] = useState([]);
   const [quizzes, setQuizzes] = useState([]);
   const [srsStats, setSrsStats] = useState({ lastSession: null, totalReviewedAllTime: 0 });
+  const [pomodoroStats, setPomodoroStats] = useState({ completedSessions: 0, updatedAt: 0 });
+
+  // Supabase Auth & Cloud Sync State
+  const [cloudUser, setCloudUser] = useState(null);
+  const [syncStatus, setSyncStatus] = useState(() =>
+    typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'idle'
+  );
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  const initialCloudSyncedUserRef = useRef(null);
+  const suppressAutoPushRef = useRef(false);
+  const debounceTimerRef = useRef(null);
+  const latestSnapshotRef = useRef(null);
 
   // Active Navigation & Selection State
   const [activeView, setActiveView] = useState('documents'); // 'documents' | 'pomodoro' | 'flashcards' | 'quiz'
@@ -116,6 +138,7 @@ export default function App() {
       setQuizzes(data.quizzes);
       setSettings(data.settings);
       setSrsStats(data.srsStats);
+      setPomodoroStats(data.pomodoroStats || { completedSessions: 0, updatedAt: 0 });
 
       const firstActive = data.tasks
         .filter((item) => !item.completed)
@@ -128,6 +151,199 @@ export default function App() {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  // Keep ref pointing to latest local snapshot for bidirectional sync & debounce
+  useEffect(() => {
+    latestSnapshotRef.current = {
+      documents,
+      folders,
+      tasks,
+      flashcards,
+      quizzes,
+      srsStats,
+      pomodoroStats,
+    };
+  }, [documents, folders, tasks, flashcards, quizzes, srsStats, pomodoroStats]);
+
+  const persistMergedSnapshotLocally = useCallback(async (merged) => {
+    suppressAutoPushRef.current = true;
+    setDocuments(merged.documents);
+    setFolders(merged.folders);
+    setTasks(merged.tasks);
+    setFlashcards(merged.flashcards);
+    setQuizzes(merged.quizzes);
+    setSrsStats(merged.srsStats);
+    setPomodoroStats(merged.pomodoroStats || { completedSessions: 0, updatedAt: 0 });
+
+    await Promise.all([
+      storageService.saveCollection(KEYS.DOCUMENTS, merged.documents),
+      storageService.saveCollection(KEYS.FOLDERS, merged.folders),
+      storageService.saveCollection(KEYS.TASKS, merged.tasks),
+      storageService.saveCollection(KEYS.FLASHCARDS, merged.flashcards),
+      storageService.saveCollection(KEYS.QUIZZES, merged.quizzes),
+      storageService.saveCollection(KEYS.SRS_STATS, merged.srsStats),
+      storageService.saveCollection(
+        KEYS.POMODORO_STATS,
+        merged.pomodoroStats || { completedSessions: 0, updatedAt: 0 }
+      ),
+    ]);
+  }, []);
+
+  // Supabase Auth session listener (gracefully no-ops in local-only mode)
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    let active = true;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (active) {
+        setCloudUser(data?.session?.user || null);
+      }
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const nextUser = session?.user || null;
+      setCloudUser(nextUser);
+      if (!nextUser) {
+        initialCloudSyncedUserRef.current = null;
+        setSyncStatus('idle');
+      }
+    });
+
+    return () => {
+      active = false;
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  // Bidirectional initial merge on sign-in + Realtime cross-device subscription
+  useEffect(() => {
+    if (!hydrated || !cloudUser || !isSupabaseConfigured) return;
+
+    let cancelled = false;
+    const userId = cloudUser.id;
+
+    const runInitialSync = async () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setSyncStatus('offline');
+        return;
+      }
+      setSyncStatus('syncing');
+      const { merged, error } = await syncWorkspaceBidirectional(
+        userId,
+        latestSnapshotRef.current
+      );
+      if (cancelled) return;
+
+      if (merged) {
+        await persistMergedSnapshotLocally(merged);
+      }
+      initialCloudSyncedUserRef.current = userId;
+      setSyncStatus(error ? 'offline' : 'synced');
+    };
+
+    runInitialSync();
+
+    const unsubscribe = subscribeToCloudWorkspace(userId, async (remoteData) => {
+      if (cancelled || !latestSnapshotRef.current) return;
+      const merged = mergeWorkspaces(latestSnapshotRef.current, remoteData);
+      await persistMergedSnapshotLocally(merged);
+      setSyncStatus('synced');
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [hydrated, cloudUser, persistMergedSnapshotLocally]);
+
+  // Network online/offline watcher
+  useEffect(() => {
+    const handleOffline = () => setSyncStatus('offline');
+    const handleOnline = async () => {
+      if (!cloudUser || !isSupabaseConfigured || !latestSnapshotRef.current) return;
+      setSyncStatus('syncing');
+      const { merged, error } = await syncWorkspaceBidirectional(
+        cloudUser.id,
+        latestSnapshotRef.current
+      );
+      if (merged) await persistMergedSnapshotLocally(merged);
+      setSyncStatus(error ? 'offline' : 'synced');
+    };
+
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [cloudUser, persistMergedSnapshotLocally]);
+
+  // Debounced (1500ms) auto-save to Supabase cloud whenever workspace data changes
+  useEffect(() => {
+    if (!hydrated || !cloudUser || !isSupabaseConfigured) return;
+    if (initialCloudSyncedUserRef.current !== cloudUser.id) return;
+
+    if (suppressAutoPushRef.current) {
+      suppressAutoPushRef.current = false;
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setSyncStatus('offline');
+      return;
+    }
+
+    setSyncStatus('syncing');
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+
+    debounceTimerRef.current = setTimeout(async () => {
+      if (!latestSnapshotRef.current) return;
+      const { error } = await upsertCloudWorkspace(cloudUser.id, latestSnapshotRef.current);
+      setSyncStatus(error ? 'offline' : 'synced');
+    }, 1500);
+
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [hydrated, cloudUser, documents, folders, tasks, flashcards, quizzes, srsStats, pomodoroStats]);
+
+  const handleManualSyncNow = async () => {
+    if (!cloudUser || !isSupabaseConfigured || !latestSnapshotRef.current) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setSyncStatus('offline');
+      notify(t.syncErrorToast, 'warning');
+      return;
+    }
+    setSyncStatus('syncing');
+    const { merged, error } = await syncWorkspaceBidirectional(
+      cloudUser.id,
+      latestSnapshotRef.current
+    );
+    if (merged) await persistMergedSnapshotLocally(merged);
+    if (error) {
+      setSyncStatus('offline');
+      notify(t.syncErrorToast, 'error');
+    } else {
+      setSyncStatus('synced');
+      notify(t.syncSuccessToast, 'success');
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
+    initialCloudSyncedUserRef.current = null;
+    setCloudUser(null);
+    setSyncStatus('idle');
+    notify(t.signedOutToast, 'info');
+  };
+
+  const handlePomodoroSessionsChange = useCallback((completedSessions) => {
+    const nextStats = { completedSessions, updatedAt: Date.now() };
+    setPomodoroStats(nextStats);
+    storageService.saveCollection(KEYS.POMODORO_STATS, nextStats);
   }, []);
 
   // Periodic 7-day completed task auto-purge
@@ -165,6 +381,7 @@ export default function App() {
             ...task,
             completed: nextCompleted,
             completedAt: nextCompleted ? Date.now() : null,
+            updatedAt: Date.now(),
           };
         })
       );
@@ -206,8 +423,9 @@ export default function App() {
   };
 
   const handleUpdateFolder = (updatedFolder) => {
+    const stamped = { ...updatedFolder, updatedAt: Date.now() };
     setFolders((prev) => {
-      const next = prev.map((f) => (f.id === updatedFolder.id ? updatedFolder : f));
+      const next = prev.map((f) => (f.id === stamped.id ? stamped : f));
       storageService.saveCollection(KEYS.FOLDERS, next);
       return next;
     });
@@ -239,6 +457,7 @@ export default function App() {
         return {
           ...doc,
           folderIds: exists ? current.filter((id) => id !== folderId) : [...current, folderId],
+          updatedAt: Date.now(),
         };
       });
       storageService.saveCollection(KEYS.DOCUMENTS, next);
@@ -393,6 +612,7 @@ export default function App() {
       setQuizzes(restored.quizzes);
       setSettings(restored.settings);
       setSrsStats(restored.srsStats);
+      setPomodoroStats(restored.pomodoroStats || { completedSessions: 0, updatedAt: 0 });
       setOpenDocId(null);
       notify(t.backupImported, 'success');
     } catch {
@@ -499,7 +719,20 @@ export default function App() {
         })}
       </nav>
 
-      {/* 3. Pinned Bottom-Left Settings Gear Icon */}
+      {/* 3. Account & Cloud Sync Widget (above Settings) */}
+      <CloudSyncWidget
+        user={cloudUser}
+        syncStatus={syncStatus}
+        onOpenAuth={() => {
+          setMobileDrawerOpen(false);
+          setAuthModalOpen(true);
+        }}
+        onSyncNow={handleManualSyncNow}
+        onSignOut={handleSignOut}
+        t={t}
+      />
+
+      {/* 4. Pinned Bottom-Left Settings Gear Icon */}
       <div className="px-2.5 py-2.5 border-t border-[#E5E5E3] dark:border-[#2F2F2F] shrink-0 flex items-center justify-start">
         <button
           type="button"
@@ -518,7 +751,11 @@ export default function App() {
   );
 
   return (
-    <PomodoroProvider selectedTask={selectedTask}>
+    <PomodoroProvider
+      selectedTask={selectedTask}
+      completedSessionsExternal={pomodoroStats.completedSessions}
+      onCompletedSessionsChange={handlePomodoroSessionsChange}
+    >
       <div className="h-[100dvh] w-full flex flex-col overflow-hidden bg-[#FFFFFF] dark:bg-[#191919] text-[15px] text-[#2F2F2F] dark:text-[#E8E8E6]">
         {/* Mobile Top Bar (< 768px) */}
         <header className="md:hidden no-print shrink-0 h-13 px-3 py-1.5 border-b border-[#E5E5E3] dark:border-[#2F2F2F] bg-[#F7F7F5] dark:bg-[#202020] flex items-center justify-between gap-2">
@@ -695,6 +932,13 @@ export default function App() {
         onUpdateSettings={handleUpdateSettings}
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
+        t={t}
+      />
+
+      {/* Auth Modal (Google OAuth + Email/Password) */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
         t={t}
       />
 

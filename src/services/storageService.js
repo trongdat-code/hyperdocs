@@ -19,6 +19,7 @@ export const KEYS = {
   QUIZZES: 'quizzes',
   SETTINGS: 'settings',
   SRS_STATS: 'srs_stats',
+  POMODORO_STATS: 'pomodoro_stats',
 };
 
 const DEFAULT_SETTINGS = {
@@ -307,7 +308,16 @@ export const storageService = {
   },
 
   async loadAllData() {
-    const [rawTasks, rawDocuments, folders, flashcards, quizzes, settings, srsStats] = await Promise.all([
+    const [
+      rawTasks,
+      rawDocuments,
+      folders,
+      flashcards,
+      quizzes,
+      settings,
+      srsStats,
+      pomodoroStats,
+    ] = await Promise.all([
       this.loadCollection(KEYS.TASKS, getStarterTasks),
       this.loadCollection(KEYS.DOCUMENTS, getStarterDocuments),
       this.loadCollection(KEYS.FOLDERS, getStarterFolders),
@@ -315,6 +325,7 @@ export const storageService = {
       this.loadCollection(KEYS.QUIZZES, []),
       this.loadCollection(KEYS.SETTINGS, () => ({ ...DEFAULT_SETTINGS })),
       this.loadCollection(KEYS.SRS_STATS, () => ({ lastSession: null, totalReviewedAllTime: 0 })),
+      this.loadCollection(KEYS.POMODORO_STATS, () => ({ completedSessions: 0, updatedAt: 0 })),
     ]);
 
     const cleanedTasks = purgeExpiredCompletedTasks(rawTasks);
@@ -335,6 +346,7 @@ export const storageService = {
       quizzes,
       settings: { ...DEFAULT_SETTINGS, ...settings },
       srsStats,
+      pomodoroStats: pomodoroStats || { completedSessions: 0, updatedAt: 0 },
     };
   },
 
@@ -363,6 +375,7 @@ export const storageService = {
     const flashcards = Array.isArray(source.flashcards) ? source.flashcards : [];
     const quizzes = Array.isArray(source.quizzes) ? source.quizzes : [];
     const srsStats = source.srsStats || { lastSession: null, totalReviewedAllTime: 0 };
+    const pomodoroStats = source.pomodoroStats || { completedSessions: 0, updatedAt: 0 };
     const settings = {
       ...DEFAULT_SETTINGS,
       ...(source.settings || {}),
@@ -375,9 +388,10 @@ export const storageService = {
       this.saveCollection(KEYS.FLASHCARDS, flashcards),
       this.saveCollection(KEYS.QUIZZES, quizzes),
       this.saveCollection(KEYS.SRS_STATS, srsStats),
+      this.saveCollection(KEYS.POMODORO_STATS, pomodoroStats),
       this.saveSettings(settings),
     ]);
 
-    return { tasks, documents, folders, flashcards, quizzes, settings, srsStats };
+    return { tasks, documents, folders, flashcards, quizzes, settings, srsStats, pomodoroStats };
   },
 };
