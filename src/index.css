@@ -196,6 +196,25 @@
   border-top-color: #2f2f2f;
 }
 
+/* Document text color & highlighter annotations */
+.doc-highlight,
+.study-markdown mark {
+  padding: 0.08em 0.24em;
+  border-radius: 0.28em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.dark .doc-highlight,
+.dark .study-markdown mark {
+  color: #191919;
+}
+
+/* Keep KaTeX math typeface intact regardless of selected document prose font */
+.study-markdown .katex {
+  font-family: KaTeX_Main, 'Times New Roman', serif;
+}
+
 /* Touch target helper */
 .touch-target {
   min-height: 44px;
@@ -215,7 +234,7 @@
     height: auto !important;
     overflow: visible !important;
     background: #ffffff !important;
-    color: #191919 !important;
+    color: #000000 !important;
     font-size: 11pt !important;
   }
 
@@ -235,14 +254,22 @@
     border: none !important;
     box-shadow: none !important;
     background: #ffffff !important;
-    color: #191919 !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
     transform: none !important;
     zoom: 1 !important;
   }
 
   .print-only-document * {
-    color: #191919 !important;
     border-color: #d4d4d2 !important;
+  }
+
+  .doc-text-color,
+  .doc-highlight,
+  mark {
+    color: #000000 !important;
+    background-color: transparent !important;
+    background: none !important;
   }
 
   .print-only-document pre {
