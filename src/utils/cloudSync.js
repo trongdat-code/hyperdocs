@@ -13,6 +13,7 @@ import { purgeExpiredCompletedTasks } from '../services/storageService';
  */
 
 const WORKSPACE_TABLE = 'user_workspaces';
+const MAX_CLOUD_PDF_DATAURL_CHARS = 1_500_000; // ~1.1 MB raw PDF; larger local embeds stay in local IndexedDB
 
 // Unique per-tab client ID to ignore self-echoes on Realtime updates
 const CLIENT_INSTANCE_ID = `client_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -61,10 +62,21 @@ export function mergeWorkspaces(localSnapshot, cloudSnapshot) {
   const local = localSnapshot || {};
   const cloud = cloudSnapshot || {};
 
-  const documents = mergeCollectionById(local.documents, cloud.documents).map((doc) => ({
-    ...doc,
-    folderIds: Array.isArray(doc.folderIds) ? doc.folderIds : [],
-  }));
+  const localDocMap = new Map(
+    (Array.isArray(local.documents) ? local.documents : [])
+      .filter((d) => d && d.id)
+      .map((d) => [d.id, d])
+  );
+
+  const documents = mergeCollectionById(local.documents, cloud.documents).map((doc) => {
+    const localCopy = localDocMap.get(doc.id);
+    return {
+      ...doc,
+      // Preserve local embedded PDF binary when cloud payload intentionally stripped oversized data URLs
+      pdfDataUrl: doc.pdfDataUrl || localCopy?.pdfDataUrl || undefined,
+      folderIds: Array.isArray(doc.folderIds) ? doc.folderIds : [],
+    };
+  });
 
   const folders = mergeCollectionById(local.folders, cloud.folders);
   const tasks = purgeExpiredCompletedTasks(mergeCollectionById(local.tasks, cloud.tasks));
@@ -149,8 +161,19 @@ export async function upsertCloudWorkspace(userId, snapshot) {
     return { error: new Error('Supabase is not configured.') };
   }
 
+  const sanitizedDocs = Array.isArray(snapshot?.documents)
+    ? snapshot.documents.map((doc) => {
+        if (doc?.pdfDataUrl && doc.pdfDataUrl.length > MAX_CLOUD_PDF_DATAURL_CHARS) {
+          const { pdfDataUrl: _omitted, ...rest } = doc;
+          return rest;
+        }
+        return doc;
+      })
+    : [];
+
   const payload = {
     ...snapshot,
+    documents: sanitizedDocs,
     schemaVersion: 2,
     clientInstanceId: CLIENT_INSTANCE_ID,
     updatedAt: Date.now(),
