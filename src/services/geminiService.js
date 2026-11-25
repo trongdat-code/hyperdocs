@@ -10,6 +10,8 @@
  *  3. generateDocumentQuiz        — POST /api/gemini { action: 'quiz', text, questionCount }
  */
 
+import { compressImageFile } from '../utils/documentProcessor';
+
 const API_ENDPOINT = '/api/gemini';
 
 async function postGeminiAction(payload) {
@@ -64,66 +66,41 @@ export async function checkGeminiProxyStatus() {
 }
 
 /**
- * Convert an image File/Blob to a base64 string (without data URL prefix) + mimeType.
- * Automatically downscales oversized phone photos (> 2000px) so payloads stay well under
- * Vercel's 4.5MB serverless body limit while keeping A4 text/equations razor-sharp.
+ * Convert an image File/Blob to a standardized compressed JPEG Base64 string + mimeType.
+ * Uses `documentProcessor.compressImageFile` (max 1500px longest side, `#FFFFFF` background,
+ * JPEG quality 0.8) so payloads stay well under Vercel's 4.5MB body limit while keeping
+ * A4 text and math/chemistry equations crisp.
  */
-export function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const readRaw = () => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = String(reader.result || '');
-        const commaIdx = result.indexOf(',');
-        const base64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : result;
-        resolve({
-          data: base64,
-          mimeType: file.type || 'image/jpeg',
-        });
+export async function fileToBase64(file) {
+  if (file?.type?.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file?.name || '')) {
+    try {
+      const compressed = await compressImageFile(file);
+      return {
+        data: compressed.base64,
+        mimeType: compressed.mimeType,
+        dataUrl: compressed.dataUrl,
+        width: compressed.width,
+        height: compressed.height,
+        byteSize: compressed.byteSize,
       };
-      reader.onerror = () => reject(new Error('Failed to read image file'));
-      reader.readAsDataURL(file);
-    };
-
-    // Only compress large images (> 1.8 MB) using an offscreen canvas
-    if (!file.type?.startsWith('image/') || file.size <= 1.8 * 1024 * 1024) {
-      readRaw();
-      return;
+    } catch {
+      // Fall back to raw FileReader below if canvas decoding fails
     }
+  }
 
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
-    img.onload = () => {
-      try {
-        const MAX_DIM = 2000;
-        let { width, height } = img;
-        if (width > MAX_DIM || height > MAX_DIM) {
-          const scale = MAX_DIM / Math.max(width, height);
-          width = Math.round(width * scale);
-          height = Math.round(height * scale);
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-        const commaIdx = dataUrl.indexOf(',');
-        URL.revokeObjectURL(objectUrl);
-        resolve({
-          data: commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl,
-          mimeType: 'image/jpeg',
-        });
-      } catch {
-        URL.revokeObjectURL(objectUrl);
-        readRaw();
-      }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const commaIdx = result.indexOf(',');
+      const base64 = commaIdx >= 0 ? result.slice(commaIdx + 1) : result;
+      resolve({
+        data: base64,
+        mimeType: file.type || 'image/jpeg',
+      });
     };
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      readRaw();
-    };
-    img.src = objectUrl;
+    reader.onerror = () => reject(new Error('Failed to read image file'));
+    reader.readAsDataURL(file);
   });
 }
 

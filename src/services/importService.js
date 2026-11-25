@@ -1,8 +1,15 @@
 import mammoth from 'mammoth';
 import TurndownService from 'turndown';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { sanitizeImportedMarkdown } from '../utils/katexSanitizer';
-import { convertPdfWithGemini, ocrPdfPageBatch } from './geminiService';
+import { formatImportedText } from '../utils/formatImportedText';
+import {
+  loadPdfDocument,
+  renderPdfPageToCompressedImage,
+  stripDataUrlPrefix,
+} from '../utils/documentProcessor';
+import { convertPdfWithGemini, ocrPdfPageBatch, scanA4Document } from './geminiService';
+
+export { formatImportedText };
 
 /**
  * Client-Side Document Import Service
@@ -334,10 +341,12 @@ export async function importGoogleDoc(url, { sanitizeKatex = true } = {}) {
   }
 
   const rawMarkdown = data?.markdown || '';
+  const sanitized = sanitizeKatex ? sanitizeImportedMarkdown(rawMarkdown) : rawMarkdown;
+  const markdown = formatImportedText(sanitized);
   return {
-    title: data?.title || 'Imported Google Doc',
-    markdown: sanitizeKatex ? sanitizeImportedMarkdown(rawMarkdown) : rawMarkdown,
-    format: data?.format || 'md',
+    title: fixUtf8FilenameMojibake(data?.title || '') || 'Imported Google Doc',
+    markdown,
+    format: data?.format || 'html',
   };
 }
 
@@ -414,33 +423,146 @@ function measureMeaningfulMarkdownLength(markdown, title = '') {
 }
 
 /**
- * Render a single pdfjs-dist page to a crisp JPEG base64 string (capped at 1600px max dim).
+ * Render a single pdfjs-dist page to a crisp JPEG base64 string via documentProcessor
+ * (`scale: 2.0`, max `1500px`, `#FFFFFF` background, JPEG `quality: 0.8`).
  */
 async function renderPdfPageToJpegBase64(pdfDoc, pageNum) {
-  if (typeof document === 'undefined') {
-    throw new Error('Canvas rendering is only available in the browser.');
+  const rendered = await renderPdfPageToCompressedImage(pdfDoc, pageNum);
+  return rendered.base64;
+}
+
+/**
+ * Send client-prepared (compressed / cropped) page images to Gemini Vision OCR in batches.
+ * Preserves live progress notifications and handles 413 single-page fallback automatically.
+ */
+export async function ocrPreparedImages(
+  preparedImages,
+  { baseName = '', language = 'en', onProgress, sanitizeKatex = true } = {}
+) {
+  const validImages = (Array.isArray(preparedImages) ? preparedImages : [])
+    .map((img, idx) => ({
+      pageNumber: img?.pageNumber || idx + 1,
+      mimeType: img?.mimeType || 'image/jpeg',
+      data: stripDataUrlPrefix(img?.base64 || img?.data || img?.dataUrl || ''),
+    }))
+    .filter((img) => img.data.length > 0);
+
+  if (validImages.length === 0) {
+    const err = new Error(
+      language === 'vi'
+        ? 'Không có trang ảnh hợp lệ để quét OCR.'
+        : 'No valid page images available for OCR scanning.'
+    );
+    err.code = 'EMPTY_PDF_CONTENT';
+    throw err;
   }
-  const page = await pdfDoc.getPage(pageNum);
-  const baseViewport = page.getViewport({ scale: 1 });
-  const maxDim = Math.max(baseViewport.width, baseViewport.height) || 1000;
-  const targetScale = Math.min(1.8, Math.max(1.1, 1550 / maxDim));
-  const viewport = page.getViewport({ scale: targetScale });
 
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(viewport.width));
-  canvas.height = Math.max(1, Math.round(viewport.height));
-  const ctx = canvas.getContext('2d', { alpha: false });
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const total = validImages.length;
 
-  await page.render({ canvasContext: ctx, viewport }).promise;
+  // Fast path for a single uploaded image (or single cropped region)
+  if (total === 1) {
+    onProgress?.({
+      stage: 'ocr',
+      currentPage: 1,
+      endPage: 1,
+      totalPages: 1,
+    });
+    const single = validImages[0];
+    const { markdown, suggestedTitle } = await scanA4Document({
+      base64Data: single.data,
+      mimeType: single.mimeType,
+      language,
+    });
+    const combined = (markdown || '').trim();
+    if (!combined) {
+      const err = new Error(
+        language === 'vi'
+          ? 'Không thể trích xuất nội dung từ hình ảnh này.'
+          : 'Could not extract readable content from this image.'
+      );
+      err.code = 'EMPTY_PDF_CONTENT';
+      throw err;
+    }
+    return {
+      title: cleanPdfTitle(
+        baseName || suggestedTitle,
+        suggestedTitle || (language === 'vi' ? 'Tài liệu đã quét' : 'Scanned Document')
+      ),
+      content: sanitizeKatex ? sanitizeImportedMarkdown(combined) : combined,
+      method: 'ocr-fallback',
+    };
+  }
 
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-  // Release canvas memory immediately
-  canvas.width = 0;
-  canvas.height = 0;
-  const commaIdx = dataUrl.indexOf(',');
-  return commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+  const transcribedChunks = [];
+  let suggestedTitleFromOcr = '';
+
+  for (let startIdx = 0; startIdx < total; startIdx += OCR_BATCH_SIZE) {
+    const batch = validImages.slice(startIdx, startIdx + OCR_BATCH_SIZE);
+    const currentPos = startIdx + 1;
+    const endPos = Math.min(total, startIdx + batch.length);
+
+    onProgress?.({
+      stage: 'ocr',
+      currentPage: currentPos,
+      endPage: endPos,
+      totalPages: total,
+    });
+
+    try {
+      const { markdown, suggestedTitle } = await ocrPdfPageBatch({
+        images: batch,
+        language,
+      });
+      if (!suggestedTitleFromOcr && suggestedTitle) {
+        suggestedTitleFromOcr = suggestedTitle;
+      }
+      if (markdown && markdown.trim()) {
+        transcribedChunks.push(markdown.trim());
+      }
+    } catch (batchErr) {
+      if (batch.length > 1 && batchErr?.status === 413) {
+        for (let j = 0; j < batch.length; j++) {
+          const singleImg = batch[j];
+          const pos = startIdx + j + 1;
+          onProgress?.({
+            stage: 'ocr',
+            currentPage: pos,
+            endPage: pos,
+            totalPages: total,
+          });
+          const { markdown, suggestedTitle } = await ocrPdfPageBatch({
+            images: [singleImg],
+            language,
+          });
+          if (!suggestedTitleFromOcr && suggestedTitle) {
+            suggestedTitleFromOcr = suggestedTitle;
+          }
+          if (markdown && markdown.trim()) {
+            transcribedChunks.push(markdown.trim());
+          }
+        }
+      } else {
+        throw batchErr;
+      }
+    }
+  }
+
+  const combined = transcribedChunks.join('\n\n').trim();
+  if (!combined || measureMeaningfulMarkdownLength(combined, baseName) < 10) {
+    const err = new Error(
+      language === 'vi'
+        ? 'Không thể trích xuất nội dung từ các trang đã chọn.'
+        : 'Could not extract readable content from the selected pages.'
+    );
+    err.code = 'EMPTY_PDF_CONTENT';
+    throw err;
+  }
+
+  return {
+    title: cleanPdfTitle(baseName, suggestedTitleFromOcr || 'Imported PDF'),
+    content: sanitizeKatex ? sanitizeImportedMarkdown(combined) : combined,
+    method: 'ocr-fallback',
+  };
 }
 
 /**
@@ -546,14 +668,7 @@ export async function extractPdfTextLocally(
   file,
   { sanitizeKatex = true, onProgress, language = 'en', allowOcrFallback = true } = {}
 ) {
-  const pdfjsLib = await import('pdfjs-dist');
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-
-  const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
-  const pdfDoc = await loadingTask.promise;
-
-  const totalPages = pdfDoc.numPages;
+  const { pdfDoc, numPages: totalPages } = await loadPdfDocument(file);
   const pageBlocks = [];
   let totalMeaningfulChars = 0;
 

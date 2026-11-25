@@ -26,13 +26,17 @@ import {
   Calendar,
   FolderInput,
   Link2,
+  Crop,
+  RotateCcw,
 } from 'lucide-react';
 import { fileToBase64, scanA4Document } from '../../services/geminiService';
 import {
   convertDocxFileToMarkdown,
   importPdfFile,
 } from '../../services/importService';
+import { compressImageFile } from '../../utils/documentProcessor';
 import ImportModal from '../ImportModal';
+import ImageCropModal from '../ImageCropModal';
 
 const MAX_TAGS = 3;
 
@@ -79,6 +83,9 @@ export default function DocumentList({
   const [showScanner, setShowScanner] = useState(false);
   const [scanImageFile, setScanImageFile] = useState(null);
   const [scanImagePreview, setScanImagePreview] = useState('');
+  const [scanCompressedImage, setScanCompressedImage] = useState(null);
+  const [scanCroppedImage, setScanCroppedImage] = useState(null);
+  const [scanCropModalOpen, setScanCropModalOpen] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scannedMarkdown, setScannedMarkdown] = useState('');
   const [scannedTitle, setScannedTitle] = useState('');
@@ -427,6 +434,9 @@ export default function DocumentList({
   const handleOpenScanner = () => {
     setScanImageFile(null);
     setScanImagePreview('');
+    setScanCompressedImage(null);
+    setScanCroppedImage(null);
+    setScanCropModalOpen(false);
     setScannedMarkdown('');
     setScannedTitle('');
     setScannedTags(['A4 Scan']);
@@ -434,19 +444,30 @@ export default function DocumentList({
     setShowScanner(true);
   };
 
-  const handleSelectScanImage = (file) => {
+  const handleSelectScanImage = async (file) => {
     if (!file || !file.type.startsWith('image/')) return;
     setScanImageFile(file);
+    setScanCroppedImage(null);
     setScannedMarkdown('');
-    const url = URL.createObjectURL(file);
-    setScanImagePreview(url);
+    try {
+      const compressed = await compressImageFile(file);
+      setScanCompressedImage(compressed);
+      setScanImagePreview(compressed.dataUrl);
+    } catch {
+      const url = URL.createObjectURL(file);
+      setScanCompressedImage(null);
+      setScanImagePreview(url);
+    }
   };
 
   const handleRunOCR = async () => {
-    if (!scanImageFile) return;
+    if (!scanImageFile && !scanCompressedImage && !scanCroppedImage) return;
     setIsScanning(true);
     try {
-      const { data, mimeType } = await fileToBase64(scanImageFile);
+      const activePayload = scanCroppedImage || scanCompressedImage;
+      const { data, mimeType } = activePayload
+        ? { data: activePayload.base64, mimeType: activePayload.mimeType }
+        : await fileToBase64(scanImageFile);
       const { markdown, suggestedTitle } = await scanA4Document({
         base64Data: data,
         mimeType,
@@ -1324,12 +1345,39 @@ export default function DocumentList({
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2.5">
-                      <div className="rounded-xl overflow-hidden border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#191919] max-h-[340px] flex items-center justify-center">
+                      <div className="relative rounded-xl overflow-hidden border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#191919] max-h-[340px] flex items-center justify-center">
                         <img
-                          src={scanImagePreview}
+                          src={scanCroppedImage?.dataUrl || scanImagePreview}
                           alt="A4 Page Preview"
                           className="max-h-[340px] object-contain"
                         />
+                        {scanCroppedImage && (
+                          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-emerald-600/90 text-white text-[11px] font-semibold">
+                            {t.croppedBadge}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          disabled={isScanning}
+                          onClick={() => setScanCropModalOpen(true)}
+                          className="min-h-[36px] px-3 rounded-lg border border-indigo-500/40 bg-indigo-500/10 hover:bg-indigo-500/16 text-indigo-700 dark:text-indigo-300 text-[12.5px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
+                        >
+                          <Crop className="w-3.5 h-3.5" />
+                          <span>{t.cropSelectionBtn}</span>
+                        </button>
+                        {scanCroppedImage && (
+                          <button
+                            type="button"
+                            disabled={isScanning}
+                            onClick={() => setScanCroppedImage(null)}
+                            className="min-h-[36px] px-2.5 rounded-lg border border-[#E8E8E5] dark:border-[#363636] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] text-[#6B6A66] dark:text-[#9B9A97] text-[12px] font-medium inline-flex items-center gap-1 cursor-pointer transition-colors duration-150"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>{t.resetCropBtn}</span>
+                          </button>
+                        )}
                       </div>
                       <div className="flex gap-2">
                         <button
@@ -1476,6 +1524,18 @@ export default function DocumentList({
           </div>,
           document.body
         )}
+
+      {/* Interactive Crop Modal for A4 OCR Scanner */}
+      <ImageCropModal
+        isOpen={scanCropModalOpen}
+        imageSrc={scanCroppedImage?.dataUrl || scanImagePreview}
+        onCancel={() => setScanCropModalOpen(false)}
+        onConfirm={(croppedResult) => {
+          setScanCroppedImage(croppedResult);
+          setScanCropModalOpen(false);
+        }}
+        t={t}
+      />
     </div>
   );
 }
