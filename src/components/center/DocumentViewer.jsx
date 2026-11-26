@@ -54,6 +54,7 @@ import {
   insertSymbolAtSelection,
   markdownToEditorHtml,
   sanitizePastedHtml,
+  syncSlotInputSize,
   toggleHeadingBlock,
   toggleListBlock,
 } from '../../utils/wysiwygSerializer';
@@ -281,28 +282,27 @@ export default function DocumentViewer({
     }
   }, [doc.title, doc.content, doc.stickyNotes]);
 
-  // Hydrate the always-editable WYSIWYG contentEditable canvas only when switching doc,
-  // returning from Markdown Source mode, or receiving an external cloud content update.
+  // Hydrate the always-editable WYSIWYG contentEditable canvas STRICTLY when switching to a
+  // different document ID, returning from Markdown Source view, or converting an embedded PDF.
+  // NEVER overwrite `innerHTML` on `doc.content` updates while the user is actively editing!
   useEffect(() => {
     if (isEmbeddedPdf || isSourceMode) return;
     const el = editorRef.current;
     if (!el) return;
 
-    const incomingMd = doc.content || '';
     const isNewDoc = lastHydratedDocIdRef.current !== doc.id;
-    const isExternalUpdate = lastSyncedMarkdownRef.current !== incomingMd;
+    if (!isNewDoc) return;
 
-    if (isNewDoc || isExternalUpdate) {
-      el.innerHTML = markdownToEditorHtml(incomingMd);
-      lastHydratedDocIdRef.current = doc.id;
-      lastSyncedMarkdownRef.current = incomingMd;
-      draftContentRef.current = incomingMd;
-    }
+    const incomingMd = docRef.current?.content || '';
+    el.innerHTML = markdownToEditorHtml(incomingMd);
+    lastHydratedDocIdRef.current = doc.id;
+    lastSyncedMarkdownRef.current = incomingMd;
+    draftContentRef.current = incomingMd;
 
     // If opened right after clicking "+ New Note", focus directly into the canvas/title
-    if (isNewDoc && initialEditMode) {
+    if (initialEditMode) {
       requestAnimationFrame(() => {
-        if (!doc.content && titleInputRef.current) {
+        if (!incomingMd && titleInputRef.current) {
           titleInputRef.current.focus();
           titleInputRef.current.select();
         } else {
@@ -310,7 +310,7 @@ export default function DocumentViewer({
         }
       });
     }
-  }, [doc.id, doc.content, isEmbeddedPdf, isSourceMode, initialEditMode]);
+  }, [doc.id, isEmbeddedPdf, isSourceMode, initialEditMode]);
 
   // Resolve embedded PDF source (local Data URL -> Blob URL, or external URL via CORS proxy -> Blob URL with iframe fallback)
   useEffect(() => {
@@ -667,7 +667,7 @@ export default function DocumentViewer({
     [commitSaveImmediate, getLatestMarkdownContent]
   );
 
-  // ---------- Direct Inline Formula Insertion (Note View Only — Zero Raw LaTeX) ----------
+  // ---------- Direct Inline Formula Insertion (Note View Only — Zero Raw LaTeX, Zero Re-Render) ----------
   const handleInsertFormulaTemplate = useCallback(
     (eqType) => {
       const el = editorRef.current;
@@ -675,17 +675,13 @@ export default function DocumentViewer({
       const inserted = insertInteractiveEqAtSelection(el, savedRangeRef.current, eqType);
       if (!inserted) return;
 
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer)) {
-        savedRangeRef.current = sel.getRangeAt(0).cloneRange();
-      }
-
+      // Passively schedule debounced save — never replace DOM or steal slot focus
       const nextMd = editorHtmlToMarkdown(el);
       lastSyncedMarkdownRef.current = nextMd;
       draftContentRef.current = nextMd;
-      commitSaveImmediate(draftTitleRef.current, nextMd, true);
+      scheduleAutoSave(draftTitleRef.current, nextMd);
     },
-    [isSourceMode, commitSaveImmediate]
+    [isSourceMode, scheduleAutoSave]
   );
 
   const handleInsertFormulaSymbol = useCallback(
@@ -703,9 +699,9 @@ export default function DocumentViewer({
       const nextMd = editorHtmlToMarkdown(el);
       lastSyncedMarkdownRef.current = nextMd;
       draftContentRef.current = nextMd;
-      commitSaveImmediate(draftTitleRef.current, nextMd, true);
+      scheduleAutoSave(draftTitleRef.current, nextMd);
     },
-    [isSourceMode, commitSaveImmediate]
+    [isSourceMode, scheduleAutoSave]
   );
 
   // ---------- Block Formatting Actions (H1-H3, Lists, Checklists, Indent, Callout, Slash Menu) ----------
@@ -954,19 +950,39 @@ export default function DocumentViewer({
     }
   };
 
-  // Serialize live WYSIWYG DOM changes on every input (typing, deleting, pasting, undo/redo)
-  const handleWysiwygInput = useCallback(() => {
-    const el = editorRef.current;
-    if (!el) return;
-    const nextMd = editorHtmlToMarkdown(el);
-    lastSyncedMarkdownRef.current = nextMd;
-    draftContentRef.current = nextMd;
-    scheduleAutoSave(draftTitleRef.current, nextMd);
-    detectSlashCommandAtCaret();
-  }, [scheduleAutoSave, detectSlashCommandAtCaret]);
+  // Passive serialization on input: updates refs & debounced save WITHOUT touching innerHTML!
+  const handleWysiwygInput = useCallback(
+    (e) => {
+      const el = editorRef.current;
+      if (!el) return;
+
+      const target = e?.target;
+      const isFormulaSlot =
+        target && target.tagName === 'INPUT' && target.classList.contains('hd-slot');
+
+      if (isFormulaSlot) {
+        // Update only this slot's own width & value attribute — zero outer DOM churn
+        syncSlotInputSize(target);
+      }
+
+      const nextMd = editorHtmlToMarkdown(el);
+      lastSyncedMarkdownRef.current = nextMd;
+      draftContentRef.current = nextMd;
+      scheduleAutoSave(draftTitleRef.current, nextMd);
+
+      if (!isFormulaSlot) {
+        detectSlashCommandAtCaret();
+      }
+    },
+    [scheduleAutoSave, detectSlashCommandAtCaret]
+  );
 
   const updateFloatingSelectionPosition = useCallback(() => {
     if (isSourceMode || isEmbeddedPdf) return;
+    if (document.activeElement?.matches?.('input.hd-slot')) {
+      setFloatingSelection(null);
+      return;
+    }
     const el = editorRef.current;
     const selection = window.getSelection();
     if (!el || !selection || selection.rangeCount === 0) {
@@ -2082,7 +2098,13 @@ export default function DocumentViewer({
               onInput={handleWysiwygInput}
               onChange={handleWysiwygCheckboxChange}
               onKeyDown={handleWysiwygKeyDown}
-              onBlur={flushPendingSave}
+              onBlur={(e) => {
+                // Only flush when focus truly leaves the entire editor (not when tabbing between inline formula slots)
+                if (e.relatedTarget && editorRef.current?.contains(e.relatedTarget)) {
+                  return;
+                }
+                flushPendingSave();
+              }}
               onPaste={handleWysiwygPaste}
               className="study-markdown hd-wysiwyg-editor min-h-[55vh] text-[#262624] dark:text-[#ECECEA]"
               style={{ fontSize: 'inherit', fontFamily: 'inherit' }}

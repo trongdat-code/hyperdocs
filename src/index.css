@@ -492,11 +492,19 @@
   background-color: rgba(99, 102, 241, 0.08);
 }
 
-/* Direct Inline Interactive Formula Widgets (.hd-eq & .hd-slot) */
+/* Atomic Inline Interactive Formula Widgets (.inline-formula-node.hd-eq & native input.hd-slot) */
+.inline-formula-node {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 .hd-eq {
   display: inline-flex;
   align-items: center;
   vertical-align: middle;
+  white-space: nowrap;
   margin: 0 0.14em;
   padding: 0.06em 0.16em;
   border-radius: 5px;
@@ -513,61 +521,68 @@
   background-color: rgba(96, 165, 250, 0.12);
 }
 
-.hd-slot {
+input.hd-slot {
   display: inline-block;
-  min-width: 1.05em;
-  min-height: 1.1em;
+  box-sizing: content-box;
+  min-width: 1.5ch;
+  max-width: 24ch;
+  height: 1.35em;
   padding: 0 0.16em;
+  margin: 0;
+  border: 1px dashed transparent;
   border-radius: 3px;
+  background-color: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.2;
   text-align: center;
   outline: none;
   cursor: text;
-  white-space: nowrap;
   vertical-align: baseline;
-  transition: box-shadow 120ms ease, background-color 120ms ease;
+  transition: box-shadow 120ms ease, background-color 120ms ease, border-color 120ms ease;
 }
 
-.hd-slot-sm {
-  font-size: 0.78em;
-  min-width: 0.9em;
+input.hd-slot::placeholder {
+  color: rgba(113, 113, 122, 0.65);
 }
 
-.hd-slot-xs {
-  font-size: 0.68em;
-  min-width: 0.85em;
-}
-
-.hd-slot-wide {
-  min-width: 4.5em;
-  text-align: left;
-  padding: 0.04em 0.25em;
-}
-
-.hd-slot:empty {
-  border: 1px dashed rgba(37, 99, 235, 0.5);
+input.hd-slot:placeholder-shown {
+  border-color: rgba(37, 99, 235, 0.5);
   background-color: rgba(37, 99, 235, 0.05);
 }
 
-.dark .hd-slot:empty {
+.dark input.hd-slot:placeholder-shown {
   border-color: rgba(96, 165, 250, 0.55);
   background-color: rgba(37, 99, 235, 0.14);
 }
 
-.hd-slot:empty::before {
-  content: attr(data-placeholder);
-  color: rgba(113, 113, 122, 0.65);
-  pointer-events: none;
+input.hd-slot-sm {
+  font-size: 0.78em;
 }
 
-.hd-slot:focus {
+input.hd-slot-xs {
+  font-size: 0.68em;
+}
+
+input.hd-slot-wide {
+  min-width: 6.5ch;
+  max-width: 32ch;
+  text-align: left;
+  padding: 0 0.25em;
+}
+
+input.hd-slot:focus {
+  border-style: solid;
   border-color: #2563eb;
-  box-shadow: 0 0 0 1.5px rgba(37, 99, 235, 0.45);
-  background-color: rgba(239, 246, 255, 0.85);
+  box-shadow: 0 0 0 1.5px rgba(37, 99, 235, 0.35);
+  background-color: rgba(239, 246, 255, 0.9);
 }
 
-.dark .hd-slot:focus {
+.dark input.hd-slot:focus {
+  border-style: solid;
   border-color: #60a5fa;
-  box-shadow: 0 0 0 1.5px rgba(96, 165, 250, 0.45);
+  box-shadow: 0 0 0 1.5px rgba(96, 165, 250, 0.35);
   background-color: rgba(37, 99, 235, 0.22);
 }
 
@@ -830,14 +845,15 @@
 
   .hd-math-inline,
   .hd-math-block,
+  .inline-formula-node,
   .hd-eq {
     background: transparent !important;
     padding: 0 !important;
     color: #000000 !important;
   }
 
-  .hd-slot,
-  .hd-slot:empty {
+  input.hd-slot,
+  input.hd-slot:placeholder-shown {
     border: none !important;
     box-shadow: none !important;
     background: transparent !important;

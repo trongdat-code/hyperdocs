@@ -110,10 +110,29 @@ function readSlotMap(eqEl) {
   eqEl.querySelectorAll?.('[data-slot]').forEach((slotEl) => {
     const key = slotEl.getAttribute('data-slot');
     if (key) {
-      slots[key] = (slotEl.textContent || '').replace(/\u200B/g, '').trim();
+      const raw =
+        slotEl.tagName === 'INPUT'
+          ? slotEl.value || slotEl.getAttribute('value') || ''
+          : slotEl.textContent || '';
+      slots[key] = raw.replace(/\u200B/g, '').trim();
     }
   });
   return slots;
+}
+
+/**
+ * Resize an inline `<input class="hd-slot">` smoothly to fit its content width
+ * and keep its HTML `value` attribute synced for lossless DOM cloning / serialization.
+ */
+export function syncSlotInputSize(inputEl) {
+  if (!inputEl || inputEl.tagName !== 'INPUT') return;
+  const val = inputEl.value || '';
+  inputEl.setAttribute('value', val);
+  const ph = inputEl.getAttribute('placeholder') || '';
+  const isWide = inputEl.classList.contains('hd-slot-wide');
+  const minCh = isWide ? 6.5 : inputEl.classList.contains('hd-slot-xs') ? 1.8 : 2.1;
+  const len = Math.max(val.length, ph.length ? Math.min(ph.length, isWide ? 8 : 2) : 1);
+  inputEl.style.width = `${Math.max(minCh, len + 0.9)}ch`;
 }
 
 /**
@@ -185,13 +204,19 @@ export function buildLatexFromEqElement(eqEl) {
 }
 
 /**
- * Render an inline interactive visual formula widget HTML string with clickable
- * `contenteditable="true"` blank slots arranged in true mathematical geometry.
+ * Render an atomic inline interactive visual formula widget (`contenteditable="false"`)
+ * containing isolated native `<input type="text" class="hd-slot">` fields arranged in true
+ * mathematical geometry so browser keystrokes can never split formulas across lines or trigger
+ * parent `contentEditable` re-renders.
  */
 export function renderInteractiveEqHtml(eqType, initial = {}) {
   const slot = (name, ph = '', cls = '') => {
-    const val = initial[name] ? escapeHtml(initial[name]) : '';
-    return `<span class="hd-slot ${cls}" contenteditable="true" data-slot="${escapeAttr(name)}" data-placeholder="${escapeAttr(ph)}">${val}</span>`;
+    const rawVal = initial[name] ? String(initial[name]) : '';
+    const isWide = cls.includes('hd-slot-wide');
+    const isXs = cls.includes('hd-slot-xs');
+    const minCh = isWide ? 6.5 : isXs ? 1.8 : 2.1;
+    const widthCh = Math.max(minCh, Math.max(rawVal.length, Math.min(ph.length || 1, isWide ? 8 : 2)) + 0.9);
+    return `<input type="text" class="hd-slot ${cls}" data-slot="${escapeAttr(name)}" placeholder="${escapeAttr(ph)}" value="${escapeAttr(rawVal)}" style="width:${widthCh}ch" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />`;
   };
 
   let inner = '';
@@ -248,7 +273,7 @@ export function renderInteractiveEqHtml(eqType, initial = {}) {
       return '';
   }
 
-  return `<span class="hd-eq" contenteditable="false" data-eq-type="${escapeAttr(eqType)}">${inner}</span>`;
+  return `<span class="inline-formula-node hd-eq" contenteditable="false" data-eq-type="${escapeAttr(eqType)}">${inner}</span>`;
 }
 
 /**
@@ -268,9 +293,9 @@ export function renderMathChipHtml(latex, displayMode = false) {
   }
   const encoded = escapeAttr(cleanLatex);
   if (displayMode) {
-    return `<div class="hd-math-block" contenteditable="false" data-math-kind="block" data-latex="${encoded}">${rendered}</div>`;
+    return `<div class="inline-formula-node hd-math-block" contenteditable="false" data-math-kind="block" data-latex="${encoded}">${rendered}</div>`;
   }
-  return `<span class="hd-math-inline" contenteditable="false" data-math-kind="inline" data-latex="${encoded}">${rendered}</span>`;
+  return `<span class="inline-formula-node hd-math-inline" contenteditable="false" data-math-kind="inline" data-latex="${encoded}">${rendered}</span>`;
 }
 
 function formatInlineMarkdown(rawLine, tokens) {
@@ -839,6 +864,14 @@ export function editorHtmlToMarkdown(rootEl) {
     workingEl = document.createElement('div');
     workingEl.innerHTML = rootEl;
   } else {
+    // Sync live `<input>` properties into HTML attributes before cloning so values are preserved losslessly
+    rootEl.querySelectorAll?.('input.hd-slot').forEach((inp) => {
+      inp.setAttribute('value', inp.value || '');
+    });
+    rootEl.querySelectorAll?.('input.hd-checklist-box').forEach((cb) => {
+      if (cb.checked) cb.setAttribute('checked', '');
+      else cb.removeAttribute('checked');
+    });
     workingEl = rootEl.cloneNode(true);
   }
 
@@ -1702,7 +1735,7 @@ export function insertMathChipAtSelection(editorEl, savedRange, latex, displayMo
 }
 
 /**
- * Place caret immediately before or after an inline `.hd-eq` widget in normal text.
+ * Place caret immediately before or after an atomic inline `.hd-eq` widget in normal text.
  */
 function exitInlineEq(editorEl, eqEl, side = 'after') {
   if (!editorEl || !eqEl || !eqEl.parentNode) return;
@@ -1710,14 +1743,16 @@ function exitInlineEq(editorEl, eqEl, side = 'after') {
   const sel = window.getSelection();
   if (!sel) return;
 
+  editorEl.focus({ preventScroll: true });
+
   if (side === 'after') {
     let nextNode = eqEl.nextSibling;
-    if (!nextNode || nextNode.nodeType !== 3) {
-      nextNode = doc.createTextNode(' ');
+    if (!nextNode || nextNode.nodeType !== 3 || !nextNode.nodeValue) {
+      nextNode = doc.createTextNode('\u00A0');
       eqEl.parentNode.insertBefore(nextNode, eqEl.nextSibling);
     }
     const r = doc.createRange();
-    r.setStart(nextNode, Math.min(1, nextNode.nodeValue.length));
+    r.setStart(nextNode, nextNode.nodeValue.length);
     r.collapse(true);
     sel.removeAllRanges();
     sel.addRange(r);
@@ -1736,8 +1771,8 @@ function exitInlineEq(editorEl, eqEl, side = 'after') {
 }
 
 /**
- * Insert an interactive inline visual equation widget (`.hd-eq`) directly at the cursor
- * inside the WYSIWYG Note editor and auto-focus its first blank `.hd-slot`.
+ * Insert an atomic inline visual equation widget (`.inline-formula-node.hd-eq`) directly at the cursor
+ * inside the WYSIWYG Note editor and auto-focus its first native `<input class="hd-slot">`.
  */
 export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType) {
   if (!editorEl || !eqType) return false;
@@ -1750,29 +1785,27 @@ export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType) {
   const eqEl = temp.firstElementChild;
   if (!eqEl) return false;
 
-  const sel = window.getSelection();
-  let range = getActiveRangeInEditor(editorEl, savedRange);
+  let range = null;
 
-  // If caret is currently inside an existing `.hd-eq` slot, exit right after that `.hd-eq` first
-  if (range) {
-    const existingEq = (
-      range.startContainer.nodeType === 1
-        ? range.startContainer
-        : range.startContainer.parentElement
-    )?.closest?.('.hd-eq');
-    if (existingEq && editorEl.contains(existingEq)) {
-      range = doc.createRange();
-      range.setStartAfter(existingEq);
-      range.collapse(true);
-    } else if (isInsideNonEditable(range.startContainer, editorEl)) {
-      const mathAncestor = (
+  // If the user is currently focused inside an existing inline formula's `<input class="hd-slot">`,
+  // insert the new formula cleanly right AFTER that existing atomic formula node.
+  const activeEl = doc.activeElement;
+  if (activeEl && editorEl.contains(activeEl) && activeEl.closest?.('.hd-eq')) {
+    const existingEq = activeEl.closest('.hd-eq');
+    range = doc.createRange();
+    range.setStartAfter(existingEq);
+    range.collapse(true);
+  } else {
+    range = getActiveRangeInEditor(editorEl, savedRange);
+    if (range) {
+      const startNode =
         range.startContainer.nodeType === 1
           ? range.startContainer
-          : range.startContainer.parentElement
-      )?.closest?.('[data-latex]');
-      if (mathAncestor && mathAncestor.parentNode) {
+          : range.startContainer.parentElement;
+      const existingFormula = startNode?.closest?.('.inline-formula-node, .hd-eq, [data-latex]');
+      if (existingFormula && editorEl.contains(existingFormula)) {
         range = doc.createRange();
-        range.setStartAfter(mathAncestor);
+        range.setStartAfter(existingFormula);
         range.collapse(true);
       }
     }
@@ -1785,23 +1818,19 @@ export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType) {
       editorEl.appendChild(targetP);
     }
     targetP.appendChild(eqEl);
-    targetP.appendChild(doc.createTextNode(' '));
+    targetP.appendChild(doc.createTextNode('\u00A0'));
   } else {
     range.deleteContents();
     range.insertNode(eqEl);
-    const afterSpace = doc.createTextNode(' ');
+    const afterSpace = doc.createTextNode('\u00A0');
     eqEl.parentNode.insertBefore(afterSpace, eqEl.nextSibling);
   }
 
-  // Auto-focus the first empty `.hd-slot` inside the newly inserted inline equation
-  const firstSlot = eqEl.querySelector('.hd-slot');
-  if (firstSlot && sel) {
-    firstSlot.focus();
-    const slotRange = doc.createRange();
-    slotRange.selectNodeContents(firstSlot);
-    slotRange.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(slotRange);
+  // Auto-focus the first native `<input class="hd-slot">` cleanly without disturbing outer DOM
+  const firstSlot = eqEl.querySelector('input.hd-slot');
+  if (firstSlot) {
+    firstSlot.focus({ preventScroll: true });
+    firstSlot.setSelectionRange?.(0, firstSlot.value.length);
   }
 
   return true;
@@ -1809,29 +1838,30 @@ export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType) {
 
 /**
  * Insert a single math/science symbol cleanly:
- *  - If caret is inside an active `.hd-slot`, inserts the clean symbol glyph directly inside the slot.
- *  - Otherwise inserts a rendered KaTeX chip directly at the cursor and places the caret right after it.
+ *  - If caret is inside a focused native `<input class="hd-slot">`, inserts the symbol glyph
+ *    directly into that slot input without touching the parent `contentEditable` DOM.
+ *  - Otherwise inserts an atomic KaTeX chip directly at the cursor and places the caret right after it.
  */
 export function insertSymbolAtSelection(editorEl, savedRange, latex, inlineGlyph = '') {
   if (!editorEl) return false;
-  const range = getActiveRangeInEditor(editorEl, savedRange);
-  const slotEl = range
-    ? (range.startContainer.nodeType === 1
-        ? range.startContainer
-        : range.startContainer.parentElement
-      )?.closest?.('.hd-slot')
-    : null;
+  const doc = editorEl.ownerDocument;
+  const activeEl = doc.activeElement;
 
-  if (slotEl && editorEl.contains(slotEl) && inlineGlyph) {
-    const sel = window.getSelection();
-    range.deleteContents();
-    const textNode = editorEl.ownerDocument.createTextNode(inlineGlyph);
-    range.insertNode(textNode);
-    const nextRange = editorEl.ownerDocument.createRange();
-    nextRange.setStartAfter(textNode);
-    nextRange.collapse(true);
-    sel?.removeAllRanges();
-    sel?.addRange(nextRange);
+  if (
+    activeEl &&
+    activeEl.tagName === 'INPUT' &&
+    activeEl.classList.contains('hd-slot') &&
+    editorEl.contains(activeEl) &&
+    inlineGlyph
+  ) {
+    const start = activeEl.selectionStart ?? activeEl.value.length;
+    const end = activeEl.selectionEnd ?? start;
+    const nextVal = activeEl.value.slice(0, start) + inlineGlyph + activeEl.value.slice(end);
+    activeEl.value = nextVal;
+    syncSlotInputSize(activeEl);
+    const nextCaret = start + inlineGlyph.length;
+    activeEl.focus({ preventScroll: true });
+    activeEl.setSelectionRange?.(nextCaret, nextCaret);
     return true;
   }
 
@@ -1839,47 +1869,46 @@ export function insertSymbolAtSelection(editorEl, savedRange, latex, inlineGlyph
 }
 
 /**
- * Smooth keyboard navigation inside inline `.hd-eq` `.hd-slot` fields:
+ * Smooth, zero-flicker keyboard navigation inside native `<input class="hd-slot">` fields
+ * inside atomic `.inline-formula-node.hd-eq` widgets:
  *  - `Tab` / `Shift+Tab`: jump between slots, or exit cleanly past the formula.
- *  - `ArrowRight` at end of slot / `ArrowLeft` at start of slot: move to adjacent slot or exit cleanly.
- *  - `Enter`: advance to next slot or exit cleanly after the formula (prevents line breaks inside slots).
- *  - `Backspace` on an empty formula: removes the empty `.hd-eq` widget cleanly.
+ *  - `ArrowRight` at end of input / `ArrowLeft` at start of input: jump to adjacent slot or exit cleanly.
+ *  - `Enter` / `Escape`: advance to next slot or exit cleanly after the formula.
+ *  - `Backspace` when all slots in the formula are empty: removes the empty formula widget cleanly.
  *
  * Returns `{ handled: boolean, mutated: boolean }`.
  */
 export function handleInlineEqKeyDown(editorEl, e) {
   if (!editorEl) return { handled: false, mutated: false };
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return { handled: false, mutated: false };
+  const target = e.target;
+  if (
+    !target ||
+    target.tagName !== 'INPUT' ||
+    !target.classList.contains('hd-slot') ||
+    !editorEl.contains(target)
+  ) {
+    return { handled: false, mutated: false };
+  }
 
-  const range = sel.getRangeAt(0);
-  const startEl =
-    range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
-  const slotEl = startEl?.closest?.('.hd-slot');
-  if (!slotEl || !editorEl.contains(slotEl)) return { handled: false, mutated: false };
-
-  const eqEl = slotEl.closest('.hd-eq');
+  const eqEl = target.closest('.hd-eq');
   if (!eqEl) return { handled: false, mutated: false };
 
-  const slots = Array.from(eqEl.querySelectorAll('.hd-slot'));
-  const idx = slots.indexOf(slotEl);
+  const slots = Array.from(eqEl.querySelectorAll('input.hd-slot'));
+  const idx = slots.indexOf(target);
 
-  const focusSlot = (targetSlot, toEnd = true) => {
-    targetSlot.focus();
-    const r = editorEl.ownerDocument.createRange();
-    r.selectNodeContents(targetSlot);
-    r.collapse(!toEnd);
-    sel.removeAllRanges();
-    sel.addRange(r);
+  const focusInputSlot = (inputEl, toEnd = false) => {
+    inputEl.focus({ preventScroll: true });
+    const pos = toEnd ? inputEl.value.length : 0;
+    inputEl.setSelectionRange?.(pos, pos);
   };
 
   if (e.key === 'Tab') {
     e.preventDefault();
     if (e.shiftKey) {
-      if (idx > 0) focusSlot(slots[idx - 1], true);
+      if (idx > 0) focusInputSlot(slots[idx - 1], true);
       else exitInlineEq(editorEl, eqEl, 'before');
     } else if (idx >= 0 && idx < slots.length - 1) {
-      focusSlot(slots[idx + 1], false);
+      focusInputSlot(slots[idx + 1], false);
     } else {
       exitInlineEq(editorEl, eqEl, 'after');
     }
@@ -1889,7 +1918,7 @@ export function handleInlineEqKeyDown(editorEl, e) {
   if (e.key === 'Enter') {
     e.preventDefault();
     if (idx >= 0 && idx < slots.length - 1) {
-      focusSlot(slots[idx + 1], false);
+      focusInputSlot(slots[idx + 1], false);
     } else {
       exitInlineEq(editorEl, eqEl, 'after');
     }
@@ -1902,18 +1931,13 @@ export function handleInlineEqKeyDown(editorEl, e) {
     return { handled: true, mutated: false };
   }
 
-  if (e.key === 'ArrowRight' && range.collapsed) {
-    const slotLen = (slotEl.textContent || '').length;
-    const caretAtEnd =
-      (range.startContainer === slotEl && range.startOffset >= slotEl.childNodes.length) ||
-      (range.startContainer.nodeType === 3 &&
-        range.startOffset >= range.startContainer.nodeValue.length &&
-        !range.startContainer.nextSibling) ||
-      slotLen === 0;
-    if (caretAtEnd) {
+  if (e.key === 'ArrowRight') {
+    const start = target.selectionStart ?? 0;
+    const end = target.selectionEnd ?? 0;
+    if (start === end && end >= target.value.length) {
       e.preventDefault();
       if (idx >= 0 && idx < slots.length - 1) {
-        focusSlot(slots[idx + 1], false);
+        focusInputSlot(slots[idx + 1], false);
       } else {
         exitInlineEq(editorEl, eqEl, 'after');
       }
@@ -1921,14 +1945,13 @@ export function handleInlineEqKeyDown(editorEl, e) {
     }
   }
 
-  if (e.key === 'ArrowLeft' && range.collapsed) {
-    const caretAtStart =
-      range.startOffset === 0 &&
-      (range.startContainer === slotEl || !range.startContainer.previousSibling);
-    if (caretAtStart) {
+  if (e.key === 'ArrowLeft') {
+    const start = target.selectionStart ?? 0;
+    const end = target.selectionEnd ?? 0;
+    if (start === 0 && end === 0) {
       e.preventDefault();
       if (idx > 0) {
-        focusSlot(slots[idx - 1], true);
+        focusInputSlot(slots[idx - 1], true);
       } else {
         exitInlineEq(editorEl, eqEl, 'before');
       }
@@ -1936,22 +1959,22 @@ export function handleInlineEqKeyDown(editorEl, e) {
     }
   }
 
-  if (e.key === 'Backspace' && range.collapsed) {
-    const allEmpty = slots.every((sl) => !(sl.textContent || '').replace(/\u200B/g, '').trim());
+  if (e.key === 'Backspace' && target.value.length === 0) {
+    const allEmpty = slots.every((sl) => !sl.value.trim());
     if (allEmpty) {
       e.preventDefault();
       const parent = eqEl.parentNode;
       const prev = eqEl.previousSibling;
       eqEl.remove();
-      if (prev && prev.nodeType === 3) {
+      editorEl.focus({ preventScroll: true });
+      const sel = window.getSelection();
+      if (sel) {
         const r = editorEl.ownerDocument.createRange();
-        r.setStart(prev, prev.nodeValue.length);
-        r.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(r);
-      } else if (parent) {
-        const r = editorEl.ownerDocument.createRange();
-        r.selectNodeContents(parent);
+        if (prev && prev.nodeType === 3) {
+          r.setStart(prev, prev.nodeValue.length);
+        } else if (parent) {
+          r.selectNodeContents(parent);
+        }
         r.collapse(false);
         sel.removeAllRanges();
         sel.addRange(r);
