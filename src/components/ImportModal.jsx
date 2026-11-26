@@ -193,6 +193,7 @@ export default function ImportModal({
       const now = Date.now();
       const newDoc = {
         id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
+        docType: 'imported-gdoc',
         title: title || t.untitledDoc,
         tags: getFinalTags(),
         folderIds: [...selectedFolderIds],
@@ -311,6 +312,7 @@ export default function ImportModal({
       const resolvedTitle = fallbackTitle || cleanPdfTitle(title, t.untitledDoc);
       const newDoc = {
         id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
+        docType: 'imported-pdf',
         title: resolvedTitle,
         tags: finalTags,
         folderIds: [...selectedFolderIds],

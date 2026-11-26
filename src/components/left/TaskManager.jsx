@@ -104,8 +104,8 @@ export default function TaskManager({
       {/* Header */}
       <div className="flex items-center justify-between gap-2 px-0.5">
         <div className="flex items-center gap-2 min-w-0">
-          <ListTodo className="w-4 h-4 text-[#6B6A66] dark:text-[#9B9A97] shrink-0" />
-          <h2 className="font-semibold text-[12px] uppercase tracking-wider truncate text-[#6B6A66] dark:text-[#9B9A97]">
+          <ListTodo className="w-4 h-4 text-[#52525B] dark:text-[#A1A1AA] shrink-0" />
+          <h2 className="font-semibold text-[12px] uppercase tracking-wider truncate text-[#52525B] dark:text-[#A1A1AA]">
             {t.tasksTitle}
           </h2>
         </div>
@@ -232,8 +232,8 @@ export default function TaskManager({
                         title={isSelected ? t.selectedForFocus : t.selectForFocus}
                         className={`p-1 rounded cursor-pointer transition-colors duration-150 ${
                           isSelected
-                            ? 'text-indigo-600 dark:text-indigo-400 opacity-100'
-                            : 'text-[#6B6A66] hover:text-[#262624] dark:hover:text-white'
+                            ? 'text-[#2563EB] dark:text-[#60A5FA] opacity-100'
+                            : 'text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7]'
                         }`}
                       >
                         <Target className="w-3.5 h-3.5" />

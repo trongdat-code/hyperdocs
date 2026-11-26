@@ -835,8 +835,8 @@ export default function App() {
         key={`${keyPrefix}_${doc.id}`}
         className={`group w-full rounded-lg transition-colors duration-150 flex flex-col ${
           isActiveDoc
-            ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-semibold'
-            : 'text-[#555552] dark:text-[#B5B4B0] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] hover:text-[#191919] dark:hover:text-white'
+            ? 'bg-[#EFF6FF] dark:bg-[#2563EB]/[0.16] text-[#2563EB] dark:text-[#60A5FA] font-semibold'
+            : 'text-[#52525B] dark:text-[#A1A1AA] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] hover:text-[#18181B] dark:hover:text-[#E4E4E7]'
         }`}
       >
         <div className="flex items-center gap-1 min-w-0 pr-1">
@@ -848,11 +848,9 @@ export default function App() {
           >
             <FileText
               className={`w-3.5 h-3.5 shrink-0 ${
-                doc.docType === 'pdf-embed'
-                  ? 'text-rose-500 dark:text-rose-400'
-                  : isActiveDoc
-                    ? 'text-indigo-600 dark:text-indigo-400'
-                    : 'text-[#8E8D8A] dark:text-[#888783]'
+                isActiveDoc
+                  ? 'text-[#2563EB] dark:text-[#60A5FA]'
+                  : 'text-[#52525B] dark:text-[#A1A1AA]'
               }`}
             />
             <span className="truncate text-[13px] leading-snug flex-1">{doc.title}</span>
@@ -869,8 +867,8 @@ export default function App() {
             aria-pressed={isPinned}
             className={`p-1 rounded-md shrink-0 cursor-pointer transition-all duration-150 ${
               isPinned
-                ? 'text-amber-500 dark:text-amber-400 opacity-100 hover:bg-amber-500/15'
-                : 'text-[#8E8D8A] dark:text-[#888783] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-[#E8E8E5]/70 dark:hover:bg-[#343434]'
+                ? 'text-[#2563EB] dark:text-[#60A5FA] opacity-100 hover:bg-[#EFF6FF] dark:hover:bg-[#2563EB]/20'
+                : 'text-[#52525B] dark:text-[#A1A1AA] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-[#18181B] dark:hover:text-[#E4E4E7] hover:bg-[#E8E8E5]/70 dark:hover:bg-[#343434]'
             }`}
           >
             <Pin className={`w-3 h-3 ${isPinned ? 'fill-current' : ''}`} />
@@ -921,9 +919,9 @@ export default function App() {
           <button
             type="button"
             onClick={() => handleNavigate('documents')}
-            className="flex items-center gap-2 min-w-0 font-semibold text-[15px] tracking-tight hover:opacity-80 cursor-pointer transition-opacity duration-150"
+            className="flex items-center gap-2 min-w-0 font-semibold text-[15px] tracking-tight text-[#18181B] dark:text-[#E4E4E7] hover:opacity-80 cursor-pointer transition-opacity duration-150"
           >
-            <BookMarked className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <BookMarked className="w-4 h-4 text-[#18181B] dark:text-[#E4E4E7] shrink-0" />
             <span className="truncate">{t.appTitle}</span>
           </button>
 
@@ -938,11 +936,15 @@ export default function App() {
               aria-label={t.globalSearchPlaceholder}
               className={`relative ${
                 isMobile ? 'touch-target' : 'p-1.5'
-              } inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150 shrink-0`}
+              } inline-flex items-center justify-center rounded-lg cursor-pointer transition-colors duration-150 shrink-0 ${
+                searchPopoverOpen || hasGlobalSearch
+                  ? 'bg-[#EFF6FF] dark:bg-[#2563EB]/[0.16] text-[#2563EB] dark:text-[#60A5FA]'
+                  : 'text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7] hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C]'
+              }`}
             >
               <Search className="w-4 h-4" />
               {hasGlobalSearch && (
-                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[#2563EB] dark:bg-[#60A5FA]" />
               )}
             </button>
 
@@ -951,7 +953,7 @@ export default function App() {
                 type="button"
                 onClick={() => setMobileDrawerOpen(false)}
                 aria-label={t.closeDrawer}
-                className="touch-target inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] cursor-pointer transition-colors duration-150"
+                className="touch-target inline-flex items-center justify-center rounded-lg text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] cursor-pointer transition-colors duration-150"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -961,7 +963,7 @@ export default function App() {
                 onClick={() => setSidebarCollapsed(true)}
                 title={t.collapseSidebar}
                 aria-label={t.collapseSidebar}
-                className="p-1.5 rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150 shrink-0"
+                className="p-1.5 rounded-lg text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7] hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150 shrink-0"
               >
                 <PanelLeftClose className="w-4 h-4" />
               </button>
@@ -1000,15 +1002,15 @@ export default function App() {
                   onClick={() => handleNavigate(key)}
                   className={`w-full min-h-[36px] px-2.5 rounded-lg flex items-center gap-2.5 text-[14px] font-medium cursor-pointer transition-colors duration-150 text-left ${
                     isActive
-                      ? 'bg-[#F3F3F1] dark:bg-[#2A2A2A] text-[#191919] dark:text-white font-semibold'
-                      : 'text-[#555552] dark:text-[#B5B4B0] hover:bg-[#F3F3F1]/80 dark:hover:bg-[#262626] hover:text-[#191919] dark:hover:text-white'
+                      ? 'bg-[#EFF6FF] dark:bg-[#2563EB]/[0.16] text-[#2563EB] dark:text-[#60A5FA] font-semibold'
+                      : 'text-[#52525B] dark:text-[#A1A1AA] hover:bg-[#F3F3F1]/80 dark:hover:bg-[#262626] hover:text-[#18181B] dark:hover:text-[#E4E4E7]'
                   }`}
                 >
                   <Icon
                     className={`w-4 h-4 shrink-0 ${
                       isActive
-                        ? 'text-indigo-600 dark:text-indigo-400'
-                        : 'text-[#6B6A66] dark:text-[#9B9A97]'
+                        ? 'text-[#2563EB] dark:text-[#60A5FA]'
+                        : 'text-[#52525B] dark:text-[#A1A1AA]'
                     }`}
                   />
                   <span className="truncate flex-1">{label}</span>
@@ -1026,16 +1028,16 @@ export default function App() {
                 type="button"
                 onClick={togglePinnedDocsExpanded}
                 aria-expanded={isPinnedOpen}
-                className="w-full min-h-[34px] px-2 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold text-[#262624] dark:text-[#ECECEA] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] cursor-pointer transition-colors duration-150 text-left"
+                className="w-full min-h-[34px] px-2 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold text-[#18181B] dark:text-[#E4E4E7] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] cursor-pointer transition-colors duration-150 text-left"
               >
                 <ChevronRight
-                  className={`w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97] shrink-0 transition-transform duration-150 ${
+                  className={`w-3.5 h-3.5 text-[#52525B] dark:text-[#A1A1AA] shrink-0 transition-transform duration-150 ${
                     isPinnedOpen ? 'rotate-90' : ''
                   }`}
                 />
-                <Pin className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0 fill-amber-500/20" />
+                <Pin className="w-3.5 h-3.5 text-[#52525B] dark:text-[#A1A1AA] shrink-0" />
                 <span className="truncate flex-1">{t.pinnedSectionLabel}</span>
-                <span className="px-1.5 py-0.5 rounded-full bg-[#EFEFED] dark:bg-[#2C2C2C] text-[#6B6A66] dark:text-[#9B9A97] text-[11px] font-medium tabular-nums shrink-0">
+                <span className="px-1.5 py-0.5 rounded-full bg-[#EFEFED] dark:bg-[#2C2C2C] text-[#52525B] dark:text-[#A1A1AA] text-[11px] font-medium tabular-nums shrink-0">
                   {sidebarPinnedDocs.length}
                 </span>
               </button>
@@ -1059,16 +1061,16 @@ export default function App() {
                 type="button"
                 onClick={toggleAllDocsExpanded}
                 aria-expanded={isAllDocsOpen}
-                className="w-full min-h-[34px] px-2 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold text-[#262624] dark:text-[#ECECEA] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] cursor-pointer transition-colors duration-150 text-left"
+                className="w-full min-h-[34px] px-2 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold text-[#18181B] dark:text-[#E4E4E7] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] cursor-pointer transition-colors duration-150 text-left"
               >
                 <ChevronRight
-                  className={`w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97] shrink-0 transition-transform duration-150 ${
+                  className={`w-3.5 h-3.5 text-[#52525B] dark:text-[#A1A1AA] shrink-0 transition-transform duration-150 ${
                     isAllDocsOpen ? 'rotate-90' : ''
                   }`}
                 />
-                <FileText className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <FileText className="w-3.5 h-3.5 text-[#52525B] dark:text-[#A1A1AA] shrink-0" />
                 <span className="truncate flex-1">{t.allDocumentsSectionLabel}</span>
-                <span className="px-1.5 py-0.5 rounded-full bg-[#EFEFED] dark:bg-[#2C2C2C] text-[#6B6A66] dark:text-[#9B9A97] text-[11px] font-medium tabular-nums shrink-0">
+                <span className="px-1.5 py-0.5 rounded-full bg-[#EFEFED] dark:bg-[#2C2C2C] text-[#52525B] dark:text-[#A1A1AA] text-[11px] font-medium tabular-nums shrink-0">
                   {sidebarFilteredDocs.length}
                 </span>
               </button>
@@ -1107,20 +1109,20 @@ export default function App() {
                     type="button"
                     onClick={() => toggleSidebarFolder(folder.id)}
                     aria-expanded={isFolderOpen}
-                    className="w-full min-h-[34px] px-2 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold text-[#262624] dark:text-[#ECECEA] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] cursor-pointer transition-colors duration-150 text-left"
+                    className="w-full min-h-[34px] px-2 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold text-[#18181B] dark:text-[#E4E4E7] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] cursor-pointer transition-colors duration-150 text-left"
                   >
                     <ChevronRight
-                      className={`w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97] shrink-0 transition-transform duration-150 ${
+                      className={`w-3.5 h-3.5 text-[#52525B] dark:text-[#A1A1AA] shrink-0 transition-transform duration-150 ${
                         isFolderOpen ? 'rotate-90' : ''
                       }`}
                     />
                     {isFolderOpen ? (
-                      <FolderOpen className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <FolderOpen className="w-3.5 h-3.5 text-[#52525B] dark:text-[#A1A1AA] shrink-0" />
                     ) : (
-                      <Folder className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <Folder className="w-3.5 h-3.5 text-[#52525B] dark:text-[#A1A1AA] shrink-0" />
                     )}
                     <span className="truncate flex-1">{folder.name}</span>
-                    <span className="px-1.5 py-0.5 rounded-full bg-[#EFEFED] dark:bg-[#2C2C2C] text-[#6B6A66] dark:text-[#9B9A97] text-[11px] font-medium tabular-nums shrink-0">
+                    <span className="px-1.5 py-0.5 rounded-full bg-[#EFEFED] dark:bg-[#2C2C2C] text-[#52525B] dark:text-[#A1A1AA] text-[11px] font-medium tabular-nums shrink-0">
                       {visibleFolderDocs.length}
                     </span>
                   </button>
@@ -1167,7 +1169,12 @@ export default function App() {
               }}
               title={t.settingsButton}
               aria-label={t.settingsButton}
-              className="h-10 w-10 rounded-lg inline-flex items-center justify-center text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
+              aria-pressed={settingsOpen}
+              className={`h-10 w-10 rounded-lg inline-flex items-center justify-center cursor-pointer transition-colors duration-150 ${
+                settingsOpen
+                  ? 'bg-[#EFF6FF] dark:bg-[#2563EB]/[0.16] text-[#2563EB] dark:text-[#60A5FA]'
+                  : 'text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7] hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C]'
+              }`}
             >
               <Settings className="w-[18px] h-[18px]" />
             </button>
@@ -1212,9 +1219,9 @@ export default function App() {
           <button
             type="button"
             onClick={() => handleNavigate('documents')}
-            className="flex items-center gap-1.5 font-semibold text-[15px] cursor-pointer"
+            className="flex items-center gap-1.5 font-semibold text-[15px] text-[#18181B] dark:text-[#E4E4E7] cursor-pointer"
           >
-            <BookMarked className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            <BookMarked className="w-4 h-4 text-[#18181B] dark:text-[#E4E4E7]" />
             <span>{t.appTitle}</span>
           </button>
 

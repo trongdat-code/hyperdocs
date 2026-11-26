@@ -257,6 +257,7 @@ export default function DocumentList({
         });
         const newDoc = {
           id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
+          docType: 'imported-pdf',
           title,
           tags: ['PDF'],
           folderIds: resolvedFolders,
@@ -292,6 +293,7 @@ export default function DocumentList({
         });
         const newDoc = {
           id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
+          docType: 'imported-docx',
           title,
           tags: ['DOCX'],
           folderIds: resolvedFolders,
@@ -377,6 +379,7 @@ export default function DocumentList({
     const now = Date.now();
     const newDoc = {
       id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
+      docType: 'note',
       title: t.untitledDoc,
       tags: ['Notes'],
       folderIds: [],
@@ -721,9 +724,9 @@ export default function DocumentList({
               <button
                 type="button"
                 onClick={openCreateFolder}
-                className="min-h-[38px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#262626] hover:bg-[#F3F3F1] dark:hover:bg-[#303030] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
+                className="min-h-[38px] px-3 rounded-lg border border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A] text-[#111111] dark:text-[#F4F4F5] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
-                <FolderPlus className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                <FolderPlus className="w-4 h-4 text-[#52525B] dark:text-[#A1A1AA]" />
                 <span>{t.newFolder}</span>
               </button>
 
@@ -731,17 +734,17 @@ export default function DocumentList({
               <button
                 type="button"
                 onClick={handleOpenImportModal}
-                className="min-h-[38px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#262626] hover:bg-[#F3F3F1] dark:hover:bg-[#303030] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
+                className="min-h-[38px] px-3 rounded-lg border border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A] text-[#111111] dark:text-[#F4F4F5] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
-                <Link2 className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                <Link2 className="w-4 h-4 text-[#52525B] dark:text-[#A1A1AA]" />
                 <span>{t.importLinkButton}</span>
               </button>
 
-              {/* AI A4 OCR Scanner */}
+              {/* AI A4 OCR Scanner (Crisp Monochrome Black & White) */}
               <button
                 type="button"
                 onClick={handleOpenScanner}
-                className="min-h-[38px] px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
+                className="min-h-[38px] px-3.5 rounded-lg bg-[#111111] hover:bg-[#27272A] text-[#FFFFFF] dark:bg-[#F4F4F5] dark:hover:bg-[#FFFFFF] dark:text-[#111111] text-[13px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
                 <ScanLine className="w-4 h-4" />
                 <span>{t.scanA4}</span>

@@ -15,9 +15,9 @@ export default function CloudSyncWidget({
         <button
           type="button"
           onClick={onOpenAuth}
-          className="w-full min-h-[38px] px-2.5 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#262626] hover:bg-[#F3F3F1] dark:hover:bg-[#2F2F2F] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium flex items-center gap-2 transition-colors duration-150 cursor-pointer"
+          className="w-full min-h-[38px] px-2.5 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#262626] hover:bg-[#F3F3F1] dark:hover:bg-[#2F2F2F] text-[#18181B] dark:text-[#E4E4E7] text-[13px] font-medium flex items-center gap-2 transition-colors duration-150 cursor-pointer"
         >
-          <Cloud className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+          <Cloud className="w-4 h-4 text-[#52525B] dark:text-[#A1A1AA] shrink-0" />
           <span className="truncate">{t.signInCloudSync}</span>
         </button>
       </div>
@@ -37,7 +37,7 @@ export default function CloudSyncWidget({
     syncing: {
       dot: null,
       text: t.syncStatusSyncing,
-      textCls: 'text-indigo-600 dark:text-indigo-400',
+      textCls: 'text-[#2563EB] dark:text-[#60A5FA]',
     },
     offline: {
       dot: 'bg-amber-500',
@@ -69,7 +69,7 @@ export default function CloudSyncWidget({
               className="w-7 h-7 rounded-full object-cover shrink-0 border border-[#E8E8E5] dark:border-[#3A3A3A]"
             />
           ) : (
-            <div className="w-7 h-7 rounded-full bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold flex items-center justify-center shrink-0">
+            <div className="w-7 h-7 rounded-full bg-[#E4E4E7] dark:bg-[#323232] text-[#18181B] dark:text-[#E4E4E7] text-[11px] font-bold flex items-center justify-center shrink-0">
               {initials}
             </div>
           )}

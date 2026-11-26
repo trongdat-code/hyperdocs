@@ -1398,3 +1398,91 @@ export function handleChecklistEnter(editorEl) {
   setCaretInsideElement(nextLi.querySelector('.hd-checklist-text'), true);
   return true;
 }
+
+/**
+ * Insert a rendered KaTeX math chip (`$...$` inline or `$$...$$` display block)
+ * directly at the active cursor position inside the WYSIWYG Note editor.
+ * Places the caret cleanly right after the inserted formula so typing continues seamlessly.
+ */
+export function insertMathChipAtSelection(editorEl, savedRange, latex, displayMode = false) {
+  if (!editorEl) return false;
+  const cleanLatex = String(latex || '').trim();
+  if (!cleanLatex) return false;
+
+  const doc = editorEl.ownerDocument;
+  const temp = doc.createElement('div');
+  temp.innerHTML = renderMathChipHtml(cleanLatex, displayMode);
+  const chipEl = temp.firstElementChild;
+  if (!chipEl) return false;
+
+  const sel = window.getSelection();
+  let range = getActiveRangeInEditor(editorEl, savedRange);
+
+  if (displayMode) {
+    const block = range ? getEditableTopBlock(range.startContainer, editorEl) : null;
+    const afterP = doc.createElement('p');
+    afterP.innerHTML = '<br>';
+
+    if (block && block !== editorEl && block.parentNode) {
+      block.parentNode.insertBefore(chipEl, block.nextSibling);
+      chipEl.parentNode.insertBefore(afterP, chipEl.nextSibling);
+    } else {
+      editorEl.appendChild(chipEl);
+      editorEl.appendChild(afterP);
+    }
+
+    editorEl.focus();
+    setCaretInsideElement(afterP, true);
+    return true;
+  }
+
+  // Inline math chip insertion at exact caret position
+  if (!range) {
+    let targetP = editorEl.lastElementChild;
+    if (!targetP || targetP.nodeName !== 'P') {
+      targetP = doc.createElement('p');
+      editorEl.appendChild(targetP);
+    }
+    targetP.appendChild(chipEl);
+    const trailingSpace = doc.createTextNode(' ');
+    targetP.appendChild(trailingSpace);
+    editorEl.focus();
+    if (sel) {
+      const nextRange = doc.createRange();
+      nextRange.setStart(trailingSpace, trailingSpace.nodeValue.length);
+      nextRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(nextRange);
+    }
+    return true;
+  }
+
+  // If caret is inside a non-editable math chip, insert immediately after it
+  if (isInsideNonEditable(range.startContainer, editorEl)) {
+    const mathAncestor =
+      (range.startContainer.nodeType === 1
+        ? range.startContainer
+        : range.startContainer.parentElement
+      )?.closest?.('[data-latex]');
+    if (mathAncestor && mathAncestor.parentNode) {
+      range = doc.createRange();
+      range.setStartAfter(mathAncestor);
+      range.collapse(true);
+    }
+  }
+
+  range.deleteContents();
+  range.insertNode(chipEl);
+  const trailingSpace = doc.createTextNode(' ');
+  chipEl.parentNode.insertBefore(trailingSpace, chipEl.nextSibling);
+
+  editorEl.focus();
+  if (sel) {
+    const nextRange = doc.createRange();
+    nextRange.setStart(trailingSpace, trailingSpace.nodeValue.length);
+    nextRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(nextRange);
+  }
+  return true;
+}

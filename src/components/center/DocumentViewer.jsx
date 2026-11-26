@@ -36,6 +36,7 @@ import {
   IndentDecrease,
   Lightbulb,
   StickyNote,
+  Sigma,
 } from 'lucide-react';
 import {
   fetchPdfFileFromUrl,
@@ -49,6 +50,7 @@ import {
   handleChecklistEnter,
   indentListItem,
   insertCalloutBlock,
+  insertMathChipAtSelection,
   markdownToEditorHtml,
   renderMathChipHtml,
   sanitizePastedHtml,
@@ -56,6 +58,7 @@ import {
   toggleListBlock,
 } from '../../utils/wysiwygSerializer';
 import StickyNoteLayer, { STICKY_NOTE_COLORS } from './StickyNoteLayer';
+import FormulaToolbox from './FormulaToolbox';
 
 const MAX_TAGS = 3;
 const MIN_ZOOM = 70;
@@ -157,6 +160,17 @@ export default function DocumentViewer({
 
   // Embedded PDF viewer state (for doc.docType === 'pdf-embed')
   const isEmbeddedPdf = doc.docType === 'pdf-embed';
+  const isImportedDoc =
+    isEmbeddedPdf ||
+    doc.docType === 'imported-pdf' ||
+    doc.docType === 'imported-gdoc' ||
+    doc.docType === 'imported-docx' ||
+    Boolean(doc.pdfUrl || doc.pdfOriginalUrl || doc.pdfDataUrl) ||
+    (doc.docType !== 'note' &&
+      Array.isArray(doc.tags) &&
+      doc.tags.some((tg) => /^(pdf|google\s*docs?|gdoc|docx|word)$/i.test(String(tg).trim())));
+  const isNoteView = !isImportedDoc;
+  const [formulaToolboxOpen, setFormulaToolboxOpen] = useState(false);
   const [pdfViewerSrc, setPdfViewerSrc] = useState('');
   const [pdfViewerLoading, setPdfViewerLoading] = useState(false);
   const [pdfViewerError, setPdfViewerError] = useState('');
@@ -215,6 +229,7 @@ export default function DocumentViewer({
     setFloatingSelection(null);
     setEditingMath(null);
     setSlashMenu(null);
+    setFormulaToolboxOpen(false);
     setOpenMenu(null);
     savedRangeRef.current = null;
     setDraftTitle(doc.title || '');
@@ -653,6 +668,50 @@ export default function DocumentViewer({
       commitSaveImmediate(draftTitleRef.current, getLatestMarkdownContent(), true, next);
     },
     [commitSaveImmediate, getLatestMarkdownContent]
+  );
+
+  // ---------- Formula Toolbox Insertion (Note View Only) ----------
+  const handleInsertFormula = useCallback(
+    (latex, displayMode = false) => {
+      const cleanLatex = String(latex || '').trim();
+      if (!cleanLatex) return;
+
+      if (isSourceMode) {
+        const textarea = textareaRef.current;
+        const snippet = displayMode ? `\n$$\n${cleanLatex}\n$$\n` : `$${cleanLatex}$`;
+        if (textarea) {
+          const start = textarea.selectionStart ?? draftContentRef.current.length;
+          const end = textarea.selectionEnd ?? start;
+          const nextContent =
+            draftContentRef.current.slice(0, start) + snippet + draftContentRef.current.slice(end);
+          setDraftContent(nextContent);
+          draftContentRef.current = nextContent;
+          commitSaveImmediate(draftTitleRef.current, nextContent, true);
+          requestAnimationFrame(() => {
+            textarea.focus();
+            const caret = start + snippet.length;
+            textarea.setSelectionRange(caret, caret);
+          });
+        }
+        return;
+      }
+
+      const el = editorRef.current;
+      if (!el) return;
+      const inserted = insertMathChipAtSelection(el, savedRangeRef.current, cleanLatex, displayMode);
+      if (!inserted) return;
+
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+        savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+      }
+
+      const nextMd = editorHtmlToMarkdown(el);
+      lastSyncedMarkdownRef.current = nextMd;
+      draftContentRef.current = nextMd;
+      commitSaveImmediate(draftTitleRef.current, nextMd, true);
+    },
+    [isSourceMode, commitSaveImmediate]
   );
 
   // ---------- Block Formatting Actions (H1-H3, Lists, Checklists, Indent, Callout, Slash Menu) ----------
@@ -1339,8 +1398,8 @@ export default function DocumentViewer({
             aria-pressed={Boolean(doc.pinned)}
             className={`h-9 px-2.5 rounded-lg border text-[13px] font-medium inline-flex items-center gap-1.5 transition-colors duration-150 cursor-pointer ${
               doc.pinned
-                ? 'border-amber-400/60 bg-amber-500/12 text-amber-700 dark:text-amber-300'
-                : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] text-[#6B6A66] dark:text-[#9B9A97] hover:text-amber-600 dark:hover:text-amber-400 hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
+                ? 'border-[#2563EB]/40 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/40 dark:bg-[#2563EB]/[0.16] dark:text-[#60A5FA]'
+                : 'border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A]'
             }`}
           >
             <Pin className={`w-3.5 h-3.5 ${doc.pinned ? 'fill-current' : ''}`} />
@@ -1474,8 +1533,8 @@ export default function DocumentViewer({
                   aria-expanded={openMenu === 'color'}
                   className={`h-9 w-9 rounded-lg border inline-flex items-center justify-center transition-colors duration-150 cursor-pointer ${
                     openMenu === 'color'
-                      ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
-                      : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
+                      ? 'border-[#2563EB]/40 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/40 dark:bg-[#2563EB]/[0.16] dark:text-[#60A5FA]'
+                      : 'border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A]'
                   }`}
                 >
                   <Palette className="w-3.5 h-3.5" />
@@ -1490,8 +1549,8 @@ export default function DocumentViewer({
                   aria-expanded={openMenu === 'highlight'}
                   className={`h-9 w-9 rounded-lg border inline-flex items-center justify-center transition-colors duration-150 cursor-pointer ${
                     openMenu === 'highlight'
-                      ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
-                      : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
+                      ? 'border-[#2563EB]/40 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/40 dark:bg-[#2563EB]/[0.16] dark:text-[#60A5FA]'
+                      : 'border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A]'
                   }`}
                 >
                   <Highlighter className="w-3.5 h-3.5" />
@@ -1546,8 +1605,8 @@ export default function DocumentViewer({
                 title={isSourceMode ? t.visualEditor : t.markdownSource}
                 className={`h-9 px-2.5 rounded-lg text-[13px] font-medium inline-flex items-center gap-1.5 border transition-colors duration-150 cursor-pointer ${
                   isSourceMode
-                    ? 'border-indigo-500 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300'
-                    : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-[#ECECEA]'
+                    ? 'border-[#2563EB]/40 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/40 dark:bg-[#2563EB]/[0.16] dark:text-[#60A5FA]'
+                    : 'border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A] text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7]'
                 }`}
               >
                 {isSourceMode ? <Eye className="w-3.5 h-3.5" /> : <Code2 className="w-3.5 h-3.5" />}
@@ -1560,7 +1619,7 @@ export default function DocumentViewer({
 
           <span className="hidden sm:inline-block h-5 w-px bg-[#E8E8E5] dark:bg-[#2F2F2F] mx-0.5" />
 
-          {/* Group 3: Fullscreen, Share, Export MD & Export PDF */}
+          {/* Group 3: Fullscreen, Share, Export MD & Export PDF (Crisp Monochrome B&W) */}
           <button
             type="button"
             onClick={() => setIsFullscreen((prev) => !prev)}
@@ -1569,8 +1628,8 @@ export default function DocumentViewer({
             aria-pressed={isFullscreen}
             className={`h-9 w-9 inline-flex items-center justify-center rounded-lg border transition-colors duration-150 cursor-pointer ${
               isFullscreen
-                ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
-                : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
+                ? 'border-[#2563EB]/40 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/40 dark:bg-[#2563EB]/[0.16] dark:text-[#60A5FA]'
+                : 'border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A]'
             }`}
           >
             {isFullscreen ? (
@@ -1587,7 +1646,7 @@ export default function DocumentViewer({
                 onClick={handleShare}
                 title={t.shareDoc}
                 aria-label={t.shareDoc}
-                className="h-9 w-9 xl:w-auto xl:px-2.5 inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] text-[13px] font-medium transition-colors duration-150 cursor-pointer"
+                className="h-9 w-9 xl:w-auto xl:px-2.5 inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A] text-[#18181B] dark:text-[#E4E4E7] text-[13px] font-medium transition-colors duration-150 cursor-pointer"
               >
                 <Share2 className="w-3.5 h-3.5" />
                 <span className="hidden xl:inline">{t.shareDoc}</span>
@@ -1598,7 +1657,7 @@ export default function DocumentViewer({
                 onClick={handleExportMd}
                 title={t.exportMd}
                 aria-label={t.exportMd}
-                className="h-9 px-2.5 inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] text-[13px] font-medium transition-colors duration-150 cursor-pointer"
+                className="h-9 px-2.5 inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A] text-[#18181B] dark:text-[#E4E4E7] text-[13px] font-medium transition-colors duration-150 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span className="hidden lg:inline">{t.exportMd}</span>
@@ -1608,7 +1667,7 @@ export default function DocumentViewer({
                 type="button"
                 onClick={handleExportPdf}
                 title={t.exportPdf}
-                className="h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#262624] hover:bg-[#191919] dark:bg-[#ECECEA] dark:hover:bg-white text-white dark:text-[#191919] text-[13px] font-semibold transition-colors duration-150 cursor-pointer"
+                className="h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#111111] hover:bg-[#27272A] text-[#FFFFFF] dark:bg-[#F4F4F5] dark:hover:bg-[#FFFFFF] dark:text-[#111111] text-[13px] font-semibold transition-colors duration-150 cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">{t.exportPdf}</span>
@@ -1677,11 +1736,33 @@ export default function DocumentViewer({
               onClick={() => runBlockFormatAction('callout')}
               title={t.calloutLabel}
               aria-label={t.calloutLabel}
-              className="h-8 px-2.5 rounded-lg inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[#555552] dark:text-[#C5C4C0] hover:text-[#191919] dark:hover:text-white hover:bg-[#EFEFED] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
+              className="h-8 px-2.5 rounded-lg inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7] hover:bg-[#EFEFED] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
             >
-              <Lightbulb className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
+              <Lightbulb className="w-3.5 h-3.5" />
               <span className="hidden md:inline">{t.calloutLabel}</span>
             </button>
+
+            {/* Math & Natural Sciences Formula Toolbox Toggle (EXCLUSIVELY on Note view) */}
+            {isNoteView && (
+              <>
+                <span className="h-4 w-px bg-[#E8E8E5] dark:bg-[#2F2F2F] mx-1" />
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setFormulaToolboxOpen((v) => !v)}
+                  aria-pressed={formulaToolboxOpen}
+                  title={t.formulaToolboxTitle}
+                  className={`h-8 px-2.5 rounded-lg border text-[12.5px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150 ${
+                    formulaToolboxOpen
+                      ? 'border-[#2563EB]/40 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/40 dark:bg-[#2563EB]/[0.16] dark:text-[#60A5FA] font-semibold'
+                      : 'border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] text-[#18181B] dark:text-[#E4E4E7] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A]'
+                  }`}
+                >
+                  <Sigma className="w-3.5 h-3.5" />
+                  <span>{t.formulaToolboxBtn}</span>
+                </button>
+              </>
+            )}
           </div>
 
           {/* Right: Add Free-Moving Sticky Note & Visibility Toggle */}
@@ -1695,8 +1776,8 @@ export default function DocumentViewer({
                 aria-pressed={stickyNotesVisible}
                 className={`h-8 px-2 rounded-lg border text-[12px] font-medium inline-flex items-center gap-1 cursor-pointer transition-colors duration-150 ${
                   stickyNotesVisible
-                    ? 'border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                    : 'border-[#E8E8E5] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#262626] text-[#6B6A66] dark:text-[#9B9A97]'
+                    ? 'border-[#2563EB]/40 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/40 dark:bg-[#2563EB]/[0.16] dark:text-[#60A5FA]'
+                    : 'border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] text-[#52525B] dark:text-[#A1A1AA]'
                 }`}
               >
                 {stickyNotesVisible ? (
@@ -1712,7 +1793,7 @@ export default function DocumentViewer({
               type="button"
               onClick={handleAddStickyNote}
               title={t.addStickyNote}
-              className="h-8 px-2.5 rounded-lg border border-amber-400/50 bg-[#FEF9C3]/85 hover:bg-[#FEF08A] dark:bg-amber-400/18 dark:hover:bg-amber-400/28 text-[#713F12] dark:text-amber-200 text-[12.5px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
+              className="h-8 px-2.5 rounded-lg border border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] hover:bg-[#F4F4F5] dark:bg-[#18181B] dark:hover:bg-[#27272A] text-[#111111] dark:text-[#F4F4F5] text-[12.5px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
             >
               <Plus className="w-3.5 h-3.5" />
               <StickyNote className="w-3.5 h-3.5" />
@@ -1725,15 +1806,43 @@ export default function DocumentViewer({
       {/* Inline Formatting Bar when in Markdown Source Mode */}
       {!isEmbeddedPdf && isSourceMode && (
         <div className="no-print px-4 sm:px-6 py-2 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] flex flex-wrap items-center justify-between gap-2 shrink-0">
-          {renderAnnotationPalette(
-            (hex) => applyFormatInSourceEditor('color', hex),
-            (hex) => applyFormatInSourceEditor('highlight', hex),
-            false
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {renderAnnotationPalette(
+              (hex) => applyFormatInSourceEditor('color', hex),
+              (hex) => applyFormatInSourceEditor('highlight', hex),
+              false
+            )}
+            {isNoteView && (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setFormulaToolboxOpen((v) => !v)}
+                aria-pressed={formulaToolboxOpen}
+                title={t.formulaToolboxTitle}
+                className={`h-8 px-2.5 rounded-lg border text-[12.5px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150 ${
+                  formulaToolboxOpen
+                    ? 'border-[#2563EB]/40 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/40 dark:bg-[#2563EB]/[0.16] dark:text-[#60A5FA] font-semibold'
+                    : 'border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] text-[#18181B] dark:text-[#E4E4E7] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A]'
+                }`}
+              >
+                <Sigma className="w-3.5 h-3.5" />
+                <span>{t.formulaToolboxBtn}</span>
+              </button>
+            )}
+          </div>
           <span className="text-[12px] text-[#6B6A66] dark:text-[#9B9A97] hidden lg:inline">
             {t.annotateHint}
           </span>
         </div>
+      )}
+
+      {/* Categorized Math & Natural Sciences Formula Toolbox (Note View Only) */}
+      {isNoteView && formulaToolboxOpen && (
+        <FormulaToolbox
+          onInsert={handleInsertFormula}
+          onClose={() => setFormulaToolboxOpen(false)}
+          t={t}
+        />
       )}
 
       {/* Localized Scrollable Document Canvas (Zoom & Font isolated strictly inside) */}
