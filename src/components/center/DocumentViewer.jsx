@@ -1,10 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkMath from 'remark-math';
-import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
-import rehypeKatex from 'rehype-katex';
+import katex from 'katex';
 import {
   ArrowLeft,
   ZoomIn,
@@ -15,7 +10,7 @@ import {
   Share2,
   Printer,
   Download,
-  Edit3,
+  Code2,
   Eye,
   Tag,
   Plus,
@@ -36,6 +31,13 @@ import {
   importPdfFile,
   pdfDataUrlToBlob,
 } from '../../services/importService';
+import {
+  applyRichAnnotationToSelection,
+  editorHtmlToMarkdown,
+  markdownToEditorHtml,
+  renderMathChipHtml,
+  sanitizePastedHtml,
+} from '../../utils/wysiwygSerializer';
 
 const MAX_TAGS = 3;
 const MIN_ZOOM = 70;
@@ -77,30 +79,6 @@ const HIGHLIGHT_COLORS = [
   { id: 'clear', hex: null, labelKey: 'colorClearHighlight' },
 ];
 
-const docSanitizeSchema = {
-  ...defaultSchema,
-  tagNames: Array.from(new Set([...(defaultSchema.tagNames || []), 'span', 'mark'])),
-  attributes: {
-    ...(defaultSchema.attributes || {}),
-    code: [
-      ...((defaultSchema.attributes && defaultSchema.attributes.code) || []),
-      ['className', 'language-math', 'math-inline', 'math-display'],
-    ],
-    span: [
-      ['className', 'doc-text-color', 'math', 'math-inline', 'math-display'],
-      ['style', /^color:\s*#[0-9a-fA-F]{3,8};?$/],
-    ],
-    mark: [
-      ['className', 'doc-highlight'],
-      ['style', /^background-color:\s*#[0-9a-fA-F]{3,8};?$/],
-    ],
-    div: [
-      ...((defaultSchema.attributes && defaultSchema.attributes.div) || []),
-      ['className', 'math', 'math-display'],
-    ],
-  },
-};
-
 function loadSavedFontId() {
   try {
     const saved = localStorage.getItem(FONT_STORAGE_KEY);
@@ -110,10 +88,6 @@ function loadSavedFontId() {
     // Ignore storage errors
   }
   return 'google-sans';
-}
-
-function escapeRegExp(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function stripAnnotationWrapper(text, kind) {
@@ -138,44 +112,6 @@ function wrapAnnotatedText(selectedText, kind, hex) {
   return `<mark class="doc-highlight" style="background-color: ${hex}">${cleaned}</mark>`;
 }
 
-function applyAnnotationToMarkdown(markdown, selectedText, kind, hex) {
-  const target = selectedText.trim();
-  if (!target) return null;
-
-  const protectedChunks = [];
-  const masked = markdown.replace(
-    /```[\s\S]*?```|`[^`\n]+`|\$\$[\s\S]*?\$\$|(?<!\$)\$(?!\$)[^\n$]+?(?<!\$)\$(?!\$)/g,
-    (m) => {
-      const idx = protectedChunks.length;
-      protectedChunks.push(m);
-      return `\uE005PROT${idx}\uE006`;
-    }
-  );
-
-  const escaped = escapeRegExp(target);
-  const existingWrappedRegex =
-    kind === 'color'
-      ? new RegExp(`<span\\s+class="doc-text-color"[^>]*>(${escaped})<\\/span>`, 'i')
-      : new RegExp(`<mark\\s+class="doc-highlight"[^>]*>(${escaped})<\\/mark>`, 'i');
-
-  let updated = null;
-  if (existingWrappedRegex.test(masked)) {
-    updated = masked.replace(existingWrappedRegex, (_m, inner) =>
-      wrapAnnotatedText(inner, kind, hex)
-    );
-  } else {
-    const plainIdx = masked.indexOf(target);
-    if (plainIdx !== -1) {
-      const replacement = wrapAnnotatedText(target, kind, hex);
-      updated = masked.slice(0, plainIdx) + replacement + masked.slice(plainIdx + target.length);
-    }
-  }
-
-  if (updated === null) return null;
-
-  return updated.replace(/\uE005PROT(\d+)\uE006/g, (_m, idx) => protectedChunks[Number(idx)]);
-}
-
 export default function DocumentViewer({
   document: doc,
   initialEditMode = false,
@@ -188,7 +124,8 @@ export default function DocumentViewer({
   const [zoom, setZoom] = useState(100);
   const [fontId, setFontId] = useState(loadSavedFontId);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isEditing, setIsEditing] = useState(initialEditMode);
+  // Optional raw Markdown Source view (default is always-editable WYSIWYG canvas)
+  const [isSourceMode, setIsSourceMode] = useState(false);
   const [draftTitle, setDraftTitle] = useState(doc.title || '');
   const [draftContent, setDraftContent] = useState(doc.content || '');
   const [tagInputOpen, setTagInputOpen] = useState(false);
@@ -206,32 +143,112 @@ export default function DocumentViewer({
   // Toolbar dropdown menus ('color' | 'highlight' | null)
   const [openMenu, setOpenMenu] = useState(null);
 
-  // Floating annotation toolbar in Read mode when text is selected
+  // Floating Notion-style selection toolbar inside WYSIWYG canvas
   const [floatingSelection, setFloatingSelection] = useState(null);
+
+  // Inline click-to-edit KaTeX math formula popover
+  const [editingMath, setEditingMath] = useState(null); // { element, kind, latex, top, left }
 
   const readerScrollRef = useRef(null);
   const articleRef = useRef(null);
+  const titleInputRef = useRef(null);
+  const editorRef = useRef(null);
   const textareaRef = useRef(null);
   const toolbarMenuRef = useRef(null);
   const autoSaveTimerRef = useRef(null);
+  const savedRangeRef = useRef(null);
   const docRef = useRef(doc);
+  const draftTitleRef = useRef(doc.title || '');
+  const draftContentRef = useRef(doc.content || '');
+  const lastHydratedDocIdRef = useRef(null);
+  const lastSyncedMarkdownRef = useRef(null);
+  const hasPendingSaveRef = useRef(false);
 
   useEffect(() => {
     docRef.current = doc;
   }, [doc]);
 
   useEffect(() => {
-    setDraftTitle(doc.title || '');
-    setDraftContent(doc.content || '');
-    setFloatingSelection(null);
-    setOpenMenu(null);
-  }, [doc.id, doc.title, doc.content]);
+    draftTitleRef.current = draftTitle;
+  }, [draftTitle]);
 
   useEffect(() => {
-    setIsEditing(isEmbeddedPdf ? false : initialEditMode);
+    draftContentRef.current = draftContent;
+  }, [draftContent]);
+
+  // Reset modes & flush any pending edit on previous document smoothly when switching documents
+  useEffect(() => {
+    const activeDocSnapshot = doc;
+    setIsSourceMode(false);
     setFloatingSelection(null);
+    setEditingMath(null);
     setOpenMenu(null);
-  }, [initialEditMode, doc.id, isEmbeddedPdf]);
+    savedRangeRef.current = null;
+    setDraftTitle(doc.title || '');
+    draftTitleRef.current = doc.title || '';
+    setDraftContent(doc.content || '');
+    draftContentRef.current = doc.content || '';
+
+    return () => {
+      if (hasPendingSaveRef.current && activeDocSnapshot?.docType !== 'pdf-embed') {
+        if (autoSaveTimerRef.current) {
+          clearTimeout(autoSaveTimerRef.current);
+          autoSaveTimerRef.current = null;
+        }
+        hasPendingSaveRef.current = false;
+        onUpdateDocument({
+          ...activeDocSnapshot,
+          title: draftTitleRef.current.trim() || t.untitledDoc,
+          content: draftContentRef.current,
+          updatedAt: Date.now(),
+        });
+      }
+    };
+  }, [doc.id, isEmbeddedPdf]);
+
+  // Sync external updates (e.g., Supabase Realtime sync or PDF-to-Markdown conversion) without clobbering active typing
+  useEffect(() => {
+    if (hasPendingSaveRef.current) return;
+    if (doc.title !== undefined && doc.title !== draftTitleRef.current) {
+      setDraftTitle(doc.title || '');
+      draftTitleRef.current = doc.title || '';
+    }
+    if (doc.content !== undefined && doc.content !== lastSyncedMarkdownRef.current) {
+      setDraftContent(doc.content || '');
+      draftContentRef.current = doc.content || '';
+    }
+  }, [doc.title, doc.content]);
+
+  // Hydrate the always-editable WYSIWYG contentEditable canvas only when switching doc,
+  // returning from Markdown Source mode, or receiving an external cloud content update.
+  useEffect(() => {
+    if (isEmbeddedPdf || isSourceMode) return;
+    const el = editorRef.current;
+    if (!el) return;
+
+    const incomingMd = doc.content || '';
+    const isNewDoc = lastHydratedDocIdRef.current !== doc.id;
+    const isExternalUpdate = lastSyncedMarkdownRef.current !== incomingMd;
+
+    if (isNewDoc || isExternalUpdate) {
+      el.innerHTML = markdownToEditorHtml(incomingMd);
+      lastHydratedDocIdRef.current = doc.id;
+      lastSyncedMarkdownRef.current = incomingMd;
+      draftContentRef.current = incomingMd;
+    }
+
+    // If opened right after clicking "+ New Note", focus directly into the canvas/title
+    if (isNewDoc && initialEditMode) {
+      requestAnimationFrame(() => {
+        if (!doc.content && titleInputRef.current) {
+          titleInputRef.current.focus();
+          titleInputRef.current.select();
+        } else {
+          editorRef.current?.focus();
+        }
+      });
+    }
+  }, [doc.id, doc.content, isEmbeddedPdf, isSourceMode, initialEditMode]);
 
   // Resolve embedded PDF source (local Data URL -> Blob URL, or external URL via CORS proxy -> Blob URL with iframe fallback)
   useEffect(() => {
@@ -445,41 +462,173 @@ export default function DocumentViewer({
     return () => el.removeEventListener('wheel', handleWheel);
   }, []);
 
-  const scheduleAutoSave = useCallback(
-    (nextTitle, nextContent) => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = setTimeout(() => {
-        onUpdateDocument({
-          ...docRef.current,
-          title: nextTitle.trim() || t.untitledDoc,
-          content: nextContent,
-          updatedAt: Date.now(),
-        });
+  const commitSaveImmediate = useCallback(
+    (nextTitle, nextContent, showBadge = true) => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+      hasPendingSaveRef.current = false;
+      const cleanTitle = (nextTitle ?? draftTitleRef.current).trim() || t.untitledDoc;
+      const cleanContent = nextContent ?? draftContentRef.current;
+      lastSyncedMarkdownRef.current = cleanContent;
+      draftContentRef.current = cleanContent;
+      onUpdateDocument({
+        ...docRef.current,
+        title: cleanTitle,
+        content: cleanContent,
+        updatedAt: Date.now(),
+      });
+      if (showBadge) {
         setJustAutoSaved(true);
         setTimeout(() => setJustAutoSaved(false), 1400);
-      }, 600);
+      }
     },
     [onUpdateDocument, t.untitledDoc]
   );
 
+  const scheduleAutoSave = useCallback(
+    (nextTitle, nextContent) => {
+      hasPendingSaveRef.current = true;
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => {
+        commitSaveImmediate(nextTitle, nextContent, true);
+      }, 500);
+    },
+    [commitSaveImmediate]
+  );
+
+  const getLatestMarkdownContent = useCallback(() => {
+    if (!isSourceMode && !isEmbeddedPdf && editorRef.current) {
+      const serialized = editorHtmlToMarkdown(editorRef.current);
+      lastSyncedMarkdownRef.current = serialized;
+      draftContentRef.current = serialized;
+      return serialized;
+    }
+    return draftContentRef.current;
+  }, [isSourceMode, isEmbeddedPdf]);
+
+  const flushPendingSave = useCallback(() => {
+    if (isEmbeddedPdf) return;
+    if (hasPendingSaveRef.current) {
+      const latestMd = getLatestMarkdownContent();
+      commitSaveImmediate(draftTitleRef.current, latestMd, false);
+    }
+  }, [isEmbeddedPdf, getLatestMarkdownContent, commitSaveImmediate]);
+
   useEffect(() => {
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      if (hasPendingSaveRef.current && docRef.current?.docType !== 'pdf-embed') {
+        onUpdateDocument({
+          ...docRef.current,
+          title: draftTitleRef.current.trim() || t.untitledDoc,
+          content: draftContentRef.current,
+          updatedAt: Date.now(),
+        });
+      }
     };
-  }, []);
+  }, [onUpdateDocument, t.untitledDoc]);
 
-  const handleSaveEdits = () => {
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    onUpdateDocument({
-      ...doc,
-      title: draftTitle.trim() || t.untitledDoc,
-      content: draftContent,
-      updatedAt: Date.now(),
-    });
-    setIsEditing(false);
+  const handleToggleSourceMode = () => {
+    setFloatingSelection(null);
+    setEditingMath(null);
+    setOpenMenu(null);
+    if (!isSourceMode) {
+      // Visual WYSIWYG -> Markdown Source
+      const latestMd = getLatestMarkdownContent();
+      setDraftContent(latestMd);
+      if (hasPendingSaveRef.current) {
+        commitSaveImmediate(draftTitleRef.current, latestMd, false);
+      }
+      setIsSourceMode(true);
+    } else {
+      // Markdown Source -> Visual WYSIWYG
+      commitSaveImmediate(draftTitleRef.current, draftContentRef.current, true);
+      // Force re-hydration of editorRef on switching back to Visual mode
+      lastHydratedDocIdRef.current = null;
+      setIsSourceMode(false);
+    }
   };
 
-  const applyFormatInEditor = (kind, hex) => {
+  // Serialize live WYSIWYG DOM changes on every input (typing, deleting, pasting, undo/redo)
+  const handleWysiwygInput = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const nextMd = editorHtmlToMarkdown(el);
+    lastSyncedMarkdownRef.current = nextMd;
+    draftContentRef.current = nextMd;
+    scheduleAutoSave(draftTitleRef.current, nextMd);
+  }, [scheduleAutoSave]);
+
+  const updateFloatingSelectionPosition = useCallback(() => {
+    if (isSourceMode || isEmbeddedPdf) return;
+    const el = editorRef.current;
+    const selection = window.getSelection();
+    if (!el || !selection || selection.rangeCount === 0) {
+      setFloatingSelection(null);
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) {
+      setFloatingSelection(null);
+      return;
+    }
+
+    // Keep latest valid range inside editor (even collapsed) so toolbar swatches work cleanly
+    savedRangeRef.current = range.cloneRange();
+
+    if (selection.isCollapsed) {
+      setFloatingSelection(null);
+      return;
+    }
+
+    const text = selection.toString().trim();
+    if (!text) {
+      setFloatingSelection(null);
+      return;
+    }
+
+    const rect = range.getBoundingClientRect();
+    const containerRect = readerScrollRef.current?.getBoundingClientRect();
+    if (!containerRect || (rect.width === 0 && rect.height === 0)) {
+      setFloatingSelection(null);
+      return;
+    }
+
+    const top = Math.max(
+      12,
+      rect.top - containerRect.top + (readerScrollRef.current?.scrollTop || 0) - 52
+    );
+    // Keep floating toolbar safely inside container bounds even on 375px mobile screens
+    const halfToolbar = Math.min(185, containerRect.width / 2 - 12);
+    const rawCenter = rect.left - containerRect.left + rect.width / 2;
+    const left = Math.min(
+      Math.max(halfToolbar + 8, rawCenter),
+      containerRect.width - halfToolbar - 8
+    );
+
+    setFloatingSelection({ top, left });
+  }, [isSourceMode, isEmbeddedPdf]);
+
+  // Track selection changes inside the WYSIWYG canvas (supports keyboard Shift+Arrow selection too)
+  useEffect(() => {
+    if (isSourceMode || isEmbeddedPdf) return;
+    const onSelectionChange = () => {
+      const el = editorRef.current;
+      const sel = window.getSelection();
+      if (!el || !sel || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      if (el.contains(range.commonAncestorContainer)) {
+        savedRangeRef.current = range.cloneRange();
+      }
+    };
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => document.removeEventListener('selectionchange', onSelectionChange);
+  }, [isSourceMode, isEmbeddedPdf]);
+
+  const applyFormatInSourceEditor = (kind, hex) => {
     const textarea = textareaRef.current;
     if (!textarea) return;
     const start = textarea.selectionStart;
@@ -494,15 +643,8 @@ export default function DocumentViewer({
     const wrapped = wrapAnnotatedText(selected, kind, hex);
     const nextContent = draftContent.slice(0, start) + wrapped + draftContent.slice(end);
     setDraftContent(nextContent);
-
-    onUpdateDocument({
-      ...doc,
-      title: draftTitle.trim() || t.untitledDoc,
-      content: nextContent,
-      updatedAt: Date.now(),
-    });
-    setJustAutoSaved(true);
-    setTimeout(() => setJustAutoSaved(false), 1400);
+    draftContentRef.current = nextContent;
+    commitSaveImmediate(draftTitleRef.current, nextContent, true);
     setOpenMenu(null);
 
     requestAnimationFrame(() => {
@@ -511,80 +653,152 @@ export default function DocumentViewer({
     });
   };
 
-  const handleReaderMouseUp = () => {
-    if (isEditing) return;
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
-      setFloatingSelection(null);
-      return;
-    }
+  const applyFormatInWysiwyg = (kind, hex) => {
+    const el = editorRef.current;
+    if (!el) return;
 
-    const text = selection.toString().trim();
-    if (!text || text.length < 1 || text.includes('\n')) {
-      setFloatingSelection(null);
-      return;
-    }
-
-    const range = selection.getRangeAt(0);
-    if (!articleRef.current || !articleRef.current.contains(range.commonAncestorContainer)) {
-      setFloatingSelection(null);
-      return;
-    }
-
-    const rect = range.getBoundingClientRect();
-    const containerRect = readerScrollRef.current?.getBoundingClientRect();
-    if (!containerRect || rect.width === 0) {
-      setFloatingSelection(null);
-      return;
-    }
-
-    const top = Math.max(
-      12,
-      rect.top - containerRect.top + (readerScrollRef.current?.scrollTop || 0) - 52
-    );
-    // Keep floating toolbar safely inside container bounds even on 375px mobile screens
-    const halfToolbar = Math.min(185, containerRect.width / 2 - 12);
-    const rawCenter = rect.left - containerRect.left + rect.width / 2;
-    const left = Math.min(Math.max(halfToolbar + 8, rawCenter), containerRect.width - halfToolbar - 8);
-
-    setFloatingSelection({ text, top, left });
-  };
-
-  const applyFormatInReader = (kind, hex) => {
-    const selectedStr =
-      floatingSelection?.text || window.getSelection()?.toString().trim() || '';
-    if (!selectedStr) {
+    const { applied } = applyRichAnnotationToSelection(el, savedRangeRef.current, kind, hex);
+    if (!applied) {
       onNotify(t.selectTextToFormat, 'info');
       setOpenMenu(null);
       return;
     }
-    const updatedMarkdown = applyAnnotationToMarkdown(doc.content || '', selectedStr, kind, hex);
 
-    if (updatedMarkdown !== null) {
-      setDraftContent(updatedMarkdown);
-      onUpdateDocument({
-        ...doc,
-        content: updatedMarkdown,
-        updatedAt: Date.now(),
-      });
-      setJustAutoSaved(true);
-      setTimeout(() => setJustAutoSaved(false), 1400);
-    } else {
-      onNotify(t.selectTextToFormat, 'info');
+    const nextMd = editorHtmlToMarkdown(el);
+    lastSyncedMarkdownRef.current = nextMd;
+    draftContentRef.current = nextMd;
+    commitSaveImmediate(draftTitleRef.current, nextMd, true);
+
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
     }
 
-    window.getSelection()?.removeAllRanges();
-    setFloatingSelection(null);
     setOpenMenu(null);
+    updateFloatingSelectionPosition();
   };
 
   const applyFormatFromToolbar = (kind, hex) => {
-    if (isEditing) {
-      applyFormatInEditor(kind, hex);
+    if (isSourceMode) {
+      applyFormatInSourceEditor(kind, hex);
     } else {
-      applyFormatInReader(kind, hex);
+      applyFormatInWysiwyg(kind, hex);
     }
   };
+
+  // Sanitized rich paste inside WYSIWYG canvas (strips external styles/scripts)
+  const handleWysiwygPaste = (e) => {
+    const html = e.clipboardData?.getData('text/html');
+    const plain = e.clipboardData?.getData('text/plain') || '';
+    if (!html && !plain) return;
+
+    e.preventDefault();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+
+    const temp = document.createElement('div');
+    if (html) {
+      temp.innerHTML = sanitizePastedHtml(html);
+    } else {
+      const lines = plain.replace(/\r\n?/g, '\n').split('\n');
+      lines.forEach((line, idx) => {
+        if (idx > 0) temp.appendChild(document.createElement('br'));
+        temp.appendChild(document.createTextNode(line));
+      });
+    }
+
+    const frag = document.createDocumentFragment();
+    let lastNode = null;
+    while (temp.firstChild) {
+      lastNode = frag.appendChild(temp.firstChild);
+    }
+    range.insertNode(frag);
+
+    if (lastNode) {
+      const nextRange = document.createRange();
+      nextRange.setStartAfter(lastNode);
+      nextRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(nextRange);
+    }
+
+    handleWysiwygInput();
+  };
+
+  // Click any rendered KaTeX chip in WYSIWYG to edit its LaTeX formula inline
+  const handleWysiwygClick = (e) => {
+    const mathEl = e.target.closest?.('[data-latex]');
+    if (!mathEl || !editorRef.current?.contains(mathEl)) {
+      if (editingMath) setEditingMath(null);
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    setFloatingSelection(null);
+
+    const rect = mathEl.getBoundingClientRect();
+    const containerRect = readerScrollRef.current?.getBoundingClientRect();
+    if (!containerRect) return;
+
+    const top = Math.max(
+      12,
+      rect.bottom - containerRect.top + (readerScrollRef.current?.scrollTop || 0) + 8
+    );
+    const halfWidth = Math.min(190, containerRect.width / 2 - 12);
+    const rawCenter = rect.left - containerRect.left + rect.width / 2;
+    const left = Math.min(
+      Math.max(halfWidth + 8, rawCenter),
+      containerRect.width - halfWidth - 8
+    );
+
+    setEditingMath({
+      element: mathEl,
+      kind: mathEl.getAttribute('data-math-kind') === 'block' ? 'block' : 'inline',
+      latex: mathEl.getAttribute('data-latex') || '',
+      top,
+      left,
+    });
+  };
+
+  const handleSaveMathEdit = (e) => {
+    e?.preventDefault();
+    if (!editingMath || !editingMath.element?.isConnected) {
+      setEditingMath(null);
+      return;
+    }
+
+    const trimmed = editingMath.latex.trim();
+    if (!trimmed) {
+      editingMath.element.remove();
+    } else {
+      const temp = document.createElement('div');
+      temp.innerHTML = renderMathChipHtml(trimmed, editingMath.kind === 'block');
+      if (temp.firstElementChild) {
+        editingMath.element.replaceWith(temp.firstElementChild);
+      }
+    }
+
+    setEditingMath(null);
+    const nextMd = getLatestMarkdownContent();
+    commitSaveImmediate(draftTitleRef.current, nextMd, true);
+  };
+
+  const editingMathPreviewHtml = useMemo(() => {
+    if (!editingMath?.latex?.trim()) return '';
+    try {
+      return katex.renderToString(editingMath.latex.trim(), {
+        displayMode: editingMath.kind === 'block',
+        throwOnError: false,
+        strict: 'ignore',
+      });
+    } catch {
+      return '';
+    }
+  }, [editingMath?.latex, editingMath?.kind]);
 
   const handleAddTag = (e) => {
     e.preventDefault();
@@ -615,10 +829,12 @@ export default function DocumentViewer({
   };
 
   const handleShare = async () => {
-    const sharePayload = `# ${doc.title}\n\n${doc.content}`;
+    const currentContent = getLatestMarkdownContent();
+    const currentTitle = draftTitleRef.current.trim() || doc.title || t.untitledDoc;
+    const sharePayload = `# ${currentTitle}\n\n${currentContent}`;
     try {
       if (navigator.share && window.innerWidth < 768) {
-        await navigator.share({ title: doc.title, text: sharePayload });
+        await navigator.share({ title: currentTitle, text: sharePayload });
         return;
       }
     } catch {
@@ -633,8 +849,8 @@ export default function DocumentViewer({
   };
 
   const handleExportMd = () => {
-    const content = isEditing ? draftContent : doc.content || '';
-    const rawTitle = (isEditing ? draftTitle : doc.title || 'document').trim() || 'document';
+    const content = getLatestMarkdownContent();
+    const rawTitle = (draftTitleRef.current || doc.title || 'document').trim() || 'document';
     // Preserve clean UTF-8 Vietnamese characters while removing filesystem-unsafe characters
     const safeFilename = fixUtf8FilenameMojibake(rawTitle)
       .normalize('NFC')
@@ -657,10 +873,15 @@ export default function DocumentViewer({
 
   const handleExportPdf = () => {
     setFloatingSelection(null);
+    setEditingMath(null);
     setOpenMenu(null);
-    if (isEditing) {
-      handleSaveEdits();
-      setTimeout(() => window.print(), 120);
+    window.getSelection()?.removeAllRanges();
+    flushPendingSave();
+    if (isSourceMode) {
+      commitSaveImmediate(draftTitleRef.current, draftContentRef.current, false);
+      lastHydratedDocIdRef.current = null;
+      setIsSourceMode(false);
+      setTimeout(() => window.print(), 140);
     } else {
       window.print();
     }
@@ -742,7 +963,7 @@ export default function DocumentViewer({
           <button
             type="button"
             onClick={() => {
-              if (isEditing) handleSaveEdits();
+              flushPendingSave();
               setIsFullscreen(false);
               onBack();
             }}
@@ -946,18 +1167,18 @@ export default function DocumentViewer({
 
               <button
                 type="button"
-                onClick={() => (isEditing ? handleSaveEdits() : setIsEditing(true))}
-                aria-pressed={isEditing}
-                title={isEditing ? t.previewMarkdown : t.editMarkdown}
-                className={`h-9 px-3 rounded-lg text-[13px] font-medium inline-flex items-center gap-1.5 border transition-colors duration-150 cursor-pointer ${
-                  isEditing
-                    ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
-                    : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
+                onClick={handleToggleSourceMode}
+                aria-pressed={isSourceMode}
+                title={isSourceMode ? t.visualEditor : t.markdownSource}
+                className={`h-9 px-2.5 rounded-lg text-[13px] font-medium inline-flex items-center gap-1.5 border transition-colors duration-150 cursor-pointer ${
+                  isSourceMode
+                    ? 'border-indigo-500 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300'
+                    : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-[#ECECEA]'
                 }`}
               >
-                {isEditing ? <Eye className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
-                <span className="hidden md:inline">
-                  {isEditing ? t.previewMarkdown : t.editMarkdown}
+                {isSourceMode ? <Eye className="w-3.5 h-3.5" /> : <Code2 className="w-3.5 h-3.5" />}
+                <span className="hidden xl:inline">
+                  {isSourceMode ? t.visualEditor : t.markdownSource}
                 </span>
               </button>
             </>
@@ -1023,12 +1244,12 @@ export default function DocumentViewer({
         </div>
       </div>
 
-      {/* Inline Formatting Bar when in Edit Mode */}
-      {isEditing && (
+      {/* Inline Formatting Bar when in Markdown Source Mode */}
+      {!isEmbeddedPdf && isSourceMode && (
         <div className="no-print px-4 sm:px-6 py-2 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] flex flex-wrap items-center justify-between gap-2 shrink-0">
           {renderAnnotationPalette(
-            (hex) => applyFormatInEditor('color', hex),
-            (hex) => applyFormatInEditor('highlight', hex),
+            (hex) => applyFormatInSourceEditor('color', hex),
+            (hex) => applyFormatInSourceEditor('highlight', hex),
             false
           )}
           <span className="text-[12px] text-[#6B6A66] dark:text-[#9B9A97] hidden lg:inline">
@@ -1138,12 +1359,16 @@ export default function DocumentViewer({
       ) : (
       <div
         ref={readerScrollRef}
-        onMouseUp={handleReaderMouseUp}
-        onScroll={() => floatingSelection && setFloatingSelection(null)}
+        onMouseUp={updateFloatingSelectionPosition}
+        onKeyUp={updateFloatingSelectionPosition}
+        onScroll={() => {
+          if (floatingSelection) setFloatingSelection(null);
+          if (editingMath) setEditingMath(null);
+        }}
         className="relative flex-1 overflow-y-auto overflow-x-auto px-5 sm:px-10 lg:px-14 py-7 min-h-0"
       >
-        {/* Floating Notion-Style Color & Highlight Popover (Read Mode text selection) */}
-        {!isEditing && floatingSelection && (
+        {/* Floating Notion-Style Color & Highlight Popover (on text selection in WYSIWYG canvas) */}
+        {!isSourceMode && floatingSelection && (
           <div
             style={{
               top: `${floatingSelection.top}px`,
@@ -1154,11 +1379,75 @@ export default function DocumentViewer({
             className="no-print hd-modal-in absolute z-30 max-w-[calc(100%-24px)] rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#3A3A3A] shadow-xl px-2.5 py-1.5"
           >
             {renderAnnotationPalette(
-              (hex) => applyFormatInReader('color', hex),
-              (hex) => applyFormatInReader('highlight', hex),
+              (hex) => applyFormatInWysiwyg('color', hex),
+              (hex) => applyFormatInWysiwyg('highlight', hex),
               true
             )}
           </div>
+        )}
+
+        {/* Inline Click-to-Edit KaTeX Formula Popover */}
+        {!isSourceMode && editingMath && (
+          <form
+            onSubmit={handleSaveMathEdit}
+            style={{
+              top: `${editingMath.top}px`,
+              left: `${editingMath.left}px`,
+              transform: 'translateX(-50%)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+            className="no-print hd-modal-in absolute z-30 w-[min(380px,calc(100%-24px))] rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#3A3A3A] shadow-2xl p-3 space-y-2.5 font-sans"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11.5px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97]">
+                {t.editFormulaTitle}
+              </span>
+              <button
+                type="button"
+                onClick={() => setEditingMath(null)}
+                className="p-1 rounded-md text-[#6B6A66] hover:text-[#262624] dark:hover:text-white cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <input
+              type="text"
+              autoFocus
+              value={editingMath.latex}
+              onChange={(e) =>
+                setEditingMath((prev) => (prev ? { ...prev, latex: e.target.value } : null))
+              }
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setEditingMath(null);
+                }
+              }}
+              className="w-full h-9 px-2.5 rounded-lg border border-[#E8E8E5] dark:border-[#3A3A3A] bg-[#FBFBFA] dark:bg-[#191919] font-mono text-[13px] text-[#262624] dark:text-[#ECECEA] focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+            />
+            {editingMathPreviewHtml && (
+              <div
+                className="px-2.5 py-2 rounded-lg bg-[#FBFBFA] dark:bg-[#191919] border border-[#E8E8E5] dark:border-[#323232] text-center overflow-x-auto text-[#262624] dark:text-[#ECECEA]"
+                dangerouslySetInnerHTML={{ __html: editingMathPreviewHtml }}
+              />
+            )}
+            <div className="flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => setEditingMath(null)}
+                className="h-8 px-3 rounded-lg border border-[#E8E8E5] dark:border-[#3A3A3A] text-[12.5px] font-medium text-[#555552] dark:text-[#C5C4C0] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] cursor-pointer"
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="submit"
+                className="h-8 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[12.5px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>{t.save}</span>
+              </button>
+            </div>
+          </form>
         )}
 
         {/* Inner Document Paper Container */}
@@ -1172,23 +1461,35 @@ export default function DocumentViewer({
           }}
         >
           <header className="mb-6 pb-4 border-b border-[#E8E8E5] dark:border-[#2F2F2F]">
-            {isEditing ? (
-              <input
-                type="text"
-                value={draftTitle}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setDraftTitle(next);
-                  scheduleAutoSave(next, draftContent);
-                }}
-                placeholder={t.docTitlePlaceholder}
-                className="w-full px-3 py-2 rounded-lg border border-indigo-400 bg-[#FFFFFF] dark:bg-[#202020] text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            ) : (
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#262624] dark:text-[#ECECEA]">
-                {doc.title}
-              </h1>
-            )}
+            {/* Always-editable seamless Notion-style Title (prints as clean multi-line H1) */}
+            <input
+              ref={titleInputRef}
+              type="text"
+              value={draftTitle}
+              onChange={(e) => {
+                const next = e.target.value;
+                setDraftTitle(next);
+                draftTitleRef.current = next;
+                scheduleAutoSave(next, getLatestMarkdownContent());
+              }}
+              onBlur={flushPendingSave}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (isSourceMode) {
+                    textareaRef.current?.focus();
+                  } else {
+                    editorRef.current?.focus();
+                  }
+                }
+              }}
+              placeholder={t.docTitlePlaceholder}
+              aria-label={t.docTitlePlaceholder}
+              className="no-print w-full bg-transparent text-2xl sm:text-3xl font-bold tracking-tight text-[#262624] dark:text-[#ECECEA] placeholder:text-[#B5B4B0] dark:placeholder:text-[#5C5B58] focus:outline-none rounded-md"
+            />
+            <h1 className="hidden print:block text-2xl font-bold tracking-tight text-black">
+              {draftTitle.trim() || t.untitledDoc}
+            </h1>
 
             <div className="flex flex-wrap items-center gap-2 mt-3 text-[13px] font-sans text-[#6B6A66] dark:text-[#9B9A97]">
               <span>
@@ -1259,7 +1560,7 @@ export default function DocumentViewer({
             </div>
           </header>
 
-          {isEditing ? (
+          {isSourceMode ? (
             <div className="space-y-3 no-print">
               <textarea
                 ref={textareaRef}
@@ -1268,8 +1569,10 @@ export default function DocumentViewer({
                 onChange={(e) => {
                   const next = e.target.value;
                   setDraftContent(next);
-                  scheduleAutoSave(draftTitle, next);
+                  draftContentRef.current = next;
+                  scheduleAutoSave(draftTitleRef.current, next);
                 }}
+                onBlur={flushPendingSave}
                 placeholder={t.markdownPlaceholder}
                 style={{ fontSize: `${scaledFontPx}px`, fontFamily: activeFont.stack }}
                 className="w-full p-4 rounded-xl border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1277,43 +1580,31 @@ export default function DocumentViewer({
               <div className="flex justify-end gap-2 font-sans">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-                    setDraftTitle(doc.title || '');
-                    setDraftContent(doc.content || '');
-                    setIsEditing(false);
-                  }}
-                  className="h-10 px-4 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] text-[14px] font-medium inline-flex items-center gap-1.5 transition-colors duration-150 cursor-pointer"
+                  onClick={handleToggleSourceMode}
+                  className="h-10 px-5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[14px] font-semibold inline-flex items-center gap-1.5 transition-colors duration-150 cursor-pointer"
                 >
-                  <RotateCcw className="w-4 h-4" />
-                  <span>{t.cancel}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveEdits}
-                  className="h-10 px-5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[14px] font-semibold inline-flex items-center gap-1.5 transition-colors duration-150 cursor-pointer"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>{t.save}</span>
+                  <Eye className="w-4 h-4" />
+                  <span>{t.visualEditor}</span>
                 </button>
               </div>
             </div>
           ) : (
             <div
-              className="study-markdown text-[#262624] dark:text-[#ECECEA]"
+              ref={editorRef}
+              contentEditable
+              suppressContentEditableWarning
+              spellCheck
+              role="textbox"
+              aria-multiline="true"
+              aria-label={draftTitle || t.untitledDoc}
+              data-placeholder={t.wysiwygPlaceholder}
+              onInput={handleWysiwygInput}
+              onBlur={flushPendingSave}
+              onPaste={handleWysiwygPaste}
+              onClick={handleWysiwygClick}
+              className="study-markdown hd-wysiwyg-editor min-h-[55vh] text-[#262624] dark:text-[#ECECEA]"
               style={{ fontSize: 'inherit', fontFamily: 'inherit' }}
-            >
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm, remarkMath]}
-                rehypePlugins={[
-                  rehypeRaw,
-                  [rehypeSanitize, docSanitizeSchema],
-                  rehypeKatex,
-                ]}
-              >
-                {doc.content || ''}
-              </ReactMarkdown>
-            </div>
+            />
           )}
         </article>
       </div>

@@ -347,6 +347,52 @@
   font-family: KaTeX_Main, 'Times New Roman', serif;
 }
 
+/* Always-Editable Notion-Style WYSIWYG Canvas */
+.hd-wysiwyg-editor {
+  caret-color: #6366f1;
+}
+
+.hd-wysiwyg-editor:focus {
+  outline: none;
+}
+
+.hd-wysiwyg-editor:empty::before {
+  content: attr(data-placeholder);
+  color: #9b9a97;
+  pointer-events: none;
+  display: block;
+}
+
+.dark .hd-wysiwyg-editor:empty::before {
+  color: #6b6a66;
+}
+
+.hd-math-inline {
+  display: inline-block;
+  padding: 0 0.14em;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.hd-math-inline:hover {
+  background-color: rgba(99, 102, 241, 0.12);
+}
+
+.hd-math-block {
+  display: block;
+  margin: 0.75rem 0;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  overflow-x: auto;
+  transition: background-color 140ms ease;
+}
+
+.hd-math-block:hover {
+  background-color: rgba(99, 102, 241, 0.08);
+}
+
 /* Touch target helper */
 .touch-target {
   min-height: 44px;
@@ -402,6 +448,12 @@
     color: #000000 !important;
     background-color: transparent !important;
     background: none !important;
+  }
+
+  .hd-math-inline,
+  .hd-math-block {
+    background: transparent !important;
+    padding: 0 !important;
   }
 
   .print-only-document pre {
