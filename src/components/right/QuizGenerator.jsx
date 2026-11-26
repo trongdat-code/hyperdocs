@@ -1,7 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
 import {
   FileQuestion,
   Sparkles,
@@ -17,18 +14,9 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { generateDocumentQuiz } from '../../services/geminiService';
+import MathText from '../MathText';
 
 const MAX_TAGS = 3;
-
-function InlineMath({ text }) {
-  return (
-    <span className="inline-block max-w-full overflow-x-auto align-middle [&>p]:m-0">
-      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-        {text || ''}
-      </ReactMarkdown>
-    </span>
-  );
-}
 
 export default function QuizGenerator({
   documents,
@@ -207,7 +195,7 @@ export default function QuizGenerator({
               <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#E8E8E5] dark:border-[#2F2F2F]">
                 <div>
                   <h2 className="text-lg font-bold text-[#262624] dark:text-[#ECECEA]">
-                    {activeQuiz.title}
+                    <MathText inline text={activeQuiz.title} />
                   </h2>
                   {activeQuiz.tags?.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-1">
@@ -293,16 +281,17 @@ export default function QuizGenerator({
                           key={item.idx}
                           className="rounded-xl border border-[#E8E8E5] dark:border-[#2F2F2F] border-l-[3px] border-l-rose-500 bg-[#FFFFFF] dark:bg-[#202020] p-4 space-y-2.5 text-[14px]"
                         >
-                          <p className="font-semibold text-[15px] text-[#262624] dark:text-[#ECECEA]">
-                            {item.idx + 1}. <InlineMath text={item.question} />
-                          </p>
+                          <div className="font-semibold text-[15px] text-[#262624] dark:text-[#ECECEA] leading-relaxed">
+                            <span>{item.idx + 1}. </span>
+                            <MathText inline text={item.question} />
+                          </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div className="rounded-lg bg-rose-500/8 border border-rose-500/20 px-3 py-2 text-rose-700 dark:text-rose-300 text-[13px]">
                               <span className="block text-[11px] font-semibold uppercase tracking-wide opacity-80 mb-0.5">
                                 {t.yourAnswer}
                               </span>
                               {item.userChoice !== undefined ? (
-                                <InlineMath text={item.options[item.userChoice]} />
+                                <MathText inline text={item.options[item.userChoice]} />
                               ) : (
                                 '—'
                               )}
@@ -311,16 +300,16 @@ export default function QuizGenerator({
                               <span className="block text-[11px] font-semibold uppercase tracking-wide opacity-80 mb-0.5">
                                 {t.correctAnswer}
                               </span>
-                              <InlineMath text={item.options[item.correctIndex]} />
+                              <MathText inline text={item.options[item.correctIndex]} />
                             </div>
                           </div>
                           {item.explanation && (
-                            <p className="text-[#555552] dark:text-[#C5C4C0] text-[13px] pt-2 border-t border-[#E8E8E5] dark:border-[#2F2F2F] leading-relaxed">
+                            <div className="text-[#555552] dark:text-[#C5C4C0] text-[13px] pt-2 border-t border-[#E8E8E5] dark:border-[#2F2F2F] leading-relaxed">
                               <strong className="text-[#262624] dark:text-[#ECECEA]">
                                 {t.sourceExplanation}:
                               </strong>{' '}
-                              <InlineMath text={item.explanation} />
-                            </p>
+                              <MathText inline text={item.explanation} />
+                            </div>
                           )}
                         </div>
                       ))}
@@ -358,8 +347,8 @@ export default function QuizGenerator({
                       <p className="text-[12px] font-semibold uppercase tracking-wider text-violet-600 dark:text-violet-400">
                         {t.questionProgress(qIdx + 1, activeQuiz.questions.length)}
                       </p>
-                      <div className="font-semibold text-[15px] text-[#262624] dark:text-[#ECECEA]">
-                        <InlineMath text={q.question} />
+                      <div className="font-semibold text-[15px] text-[#262624] dark:text-[#ECECEA] leading-relaxed">
+                        <MathText inline text={q.question} />
                       </div>
                       <div className="space-y-2">
                         {q.options.map((opt, optIdx) => {
@@ -370,7 +359,7 @@ export default function QuizGenerator({
                               key={optIdx}
                               type="button"
                               onClick={() => setAnswers((prev) => ({ ...prev, [qIdx]: optIdx }))}
-                              className={`w-full min-h-[44px] text-left px-3.5 py-2.5 rounded-lg border text-[14px] flex items-start gap-2.5 cursor-pointer transition-colors duration-150 ${
+                              className={`w-full min-h-[44px] text-left px-3.5 py-2.5 rounded-lg border text-[14px] flex items-center gap-2.5 cursor-pointer transition-colors duration-150 ${
                                 selected
                                   ? 'border-violet-600 bg-violet-500/10 text-violet-900 dark:text-violet-100 font-medium'
                                   : 'border-[#E8E8E5] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#262626] hover:border-violet-400/70 hover:bg-[#FBFBFA] dark:hover:bg-[#2B2B2B] text-[#262624] dark:text-[#ECECEA]'
@@ -385,8 +374,8 @@ export default function QuizGenerator({
                               >
                                 {letter}
                               </span>
-                              <span className="flex-1 min-w-0 pt-0.5">
-                                <InlineMath text={opt} />
+                              <span className="flex-1 min-w-0 leading-relaxed">
+                                <MathText inline text={opt} />
                               </span>
                             </button>
                           );
@@ -549,7 +538,7 @@ export default function QuizGenerator({
                       >
                         <div className="min-w-0 space-y-1">
                           <h3 className="font-semibold text-[15px] text-[#262624] dark:text-[#ECECEA] truncate">
-                            {quiz.title}
+                            <MathText inline text={quiz.title} />
                           </h3>
                           <div className="flex flex-wrap items-center gap-2 text-[12px] text-[#6B6A66] dark:text-[#9B9A97]">
                             <span className="tabular-nums">

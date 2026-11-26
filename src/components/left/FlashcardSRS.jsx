@@ -1,9 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkMath from 'remark-math';
-import remarkGfm from 'remark-gfm';
-import rehypeKatex from 'rehype-katex';
 import {
   Layers,
   Plus,
@@ -27,16 +23,7 @@ import {
   formatScheduledTime,
 } from '../../services/srsAlgorithm';
 import { extractFlashcardsFromDocument } from '../../services/geminiService';
-
-function MathText({ content }) {
-  return (
-    <div className="study-markdown text-[15px] overflow-x-auto max-w-full">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-        {content || ''}
-      </ReactMarkdown>
-    </div>
-  );
-}
+import MathText from '../MathText';
 
 export default function FlashcardSRS({
   flashcards,

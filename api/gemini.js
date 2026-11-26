@@ -316,7 +316,7 @@ async function handleFlashcards(ai, body) {
       config: {
         systemInstruction: `You are an expert study coach creating high-retention Spaced Repetition flashcards.
 Extract ONLY key definitions, theorems, formulas, and concepts explicitly stated in the provided document.
-Use valid KaTeX LaTeX ($...$ or $$...$$) for mathematical and chemical equations. ${outputLang}`,
+ALWAYS wrap EVERY chemical formula and mathematical expression in KaTeX dollar delimiters ($...$ for inline, $$...$$ for display) across both "front" and "back" (e.g., $\\text{CuSO}_4\\cdot 5\\text{H}_2\\text{O}$, $\\text{H}_2\\text{SO}_4$, $\\frac{1}{2}mv^2$). NEVER output bare LaTeX commands like \\text{...}, \\frac{...}, \\cdot, _{...}, or ^{...} without surrounding $...$ delimiters. ${outputLang}`,
         responseMimeType: 'application/json',
         responseSchema: flashcardSchema,
       },
@@ -355,12 +355,14 @@ async function handleQuiz(ai, body) {
           properties: {
             question: {
               type: Type.STRING,
-              description: 'Multiple-choice question strictly grounded in the provided document text.',
+              description:
+                'Multiple-choice question strictly grounded in the provided document text. Always wrap every chemical formula and math expression in $...$ delimiters.',
             },
             options: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
-              description: 'Exactly 4 distinct answer choices (A, B, C, D).',
+              description:
+                'Exactly 4 distinct answer choices (A, B, C, D). Always wrap every chemical formula and math expression in $...$ delimiters (e.g., "$\\text{CuSO}_4\\cdot 5\\text{H}_2\\text{O}$").',
             },
             correctIndex: {
               type: Type.INTEGER,
@@ -368,7 +370,8 @@ async function handleQuiz(ai, body) {
             },
             explanation: {
               type: Type.STRING,
-              description: 'Brief explanation citing only facts/formulas present in the source document.',
+              description:
+                'Brief explanation citing only facts/formulas present in the source document. Always wrap every chemical formula and math expression in $...$ delimiters.',
             },
           },
           required: ['question', 'options', 'correctIndex', 'explanation'],
@@ -390,7 +393,7 @@ CRITICAL ANTI-HALLUCINATION & GROUNDING RULES:
 2. NEVER pull external facts, outside theorems, historical dates, or background knowledge that are NOT explicitly present in the provided document text.
 3. If the document is brief, create fewer or tightly focused questions rather than inventing outside information.
 4. Every question must have exactly 4 choices, 1 unambiguous correct answer verified against the source text, and a concise explanation referencing the source text.
-5. Use KaTeX syntax ($...$) for any mathematical or chemical formulas.
+5. ALWAYS wrap EVERY chemical formula and mathematical expression in inline KaTeX dollar delimiters ($...$) across "question", every choice in "options", and "explanation" (e.g., $\\text{CuSO}_4\\cdot 5\\text{H}_2\\text{O}$, $\\text{H}_2\\text{SO}_4$, $\\text{Fe}^{3+}$, $\\frac{1}{2}mv^2$). NEVER output bare LaTeX commands like \\text{...}, \\frac{...}, \\cdot, _{...}, or ^{...} without surrounding $...$ delimiters.
 6. ${langRule}`;
 
   const response = await generateWithRetryAndFallback(
