@@ -113,8 +113,10 @@ export default function App() {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Global Search & Collapsible "All Documents" / Sidebar Folder Sections
+  // Global Search Command Popover & Collapsible "All Documents" / Sidebar Folder Sections
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [searchPopoverOpen, setSearchPopoverOpen] = useState(false);
+  const [searchActiveIndex, setSearchActiveIndex] = useState(0);
   const [allDocsExpanded, setAllDocsExpanded] = useState(() => {
     try {
       const saved = localStorage.getItem(ALL_DOCS_EXPANDED_KEY);
@@ -125,9 +127,17 @@ export default function App() {
   });
   const [sidebarExpandedFolderIds, setSidebarExpandedFolderIds] = useState([]);
 
-  const desktopSearchInputRef = useRef(null);
-  const mobileSearchInputRef = useRef(null);
+  const searchPopoverInputRef = useRef(null);
   const docListSearchInputRef = useRef(null);
+
+  const openSearchPopover = useCallback(() => {
+    setSearchActiveIndex(0);
+    setSearchPopoverOpen(true);
+  }, []);
+
+  const closeSearchPopover = useCallback(() => {
+    setSearchPopoverOpen(false);
+  }, []);
 
   const toggleAllDocsExpanded = useCallback(() => {
     setAllDocsExpanded((prev) => {
@@ -147,9 +157,30 @@ export default function App() {
     );
   }, []);
 
-  // Global keyboard shortcuts: Ctrl+K / Cmd+K or `/` focuses the global search bar
+  // Auto-focus search input whenever Notion-style search popover opens
+  useEffect(() => {
+    if (!searchPopoverOpen) return;
+    setSearchActiveIndex(0);
+    const frame = requestAnimationFrame(() => {
+      searchPopoverInputRef.current?.focus();
+      searchPopoverInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [searchPopoverOpen]);
+
+  useEffect(() => {
+    setSearchActiveIndex(0);
+  }, [globalSearchQuery]);
+
+  // Global keyboard shortcuts: Ctrl+K / Cmd+K or `/` opens the Notion-style search popover, Esc closes it
   useEffect(() => {
     const handleGlobalSearchShortcut = (e) => {
+      if (e.key === 'Escape' && searchPopoverOpen) {
+        e.preventDefault();
+        setSearchPopoverOpen(false);
+        return;
+      }
+
       const key = e.key?.toLowerCase();
       const isCtrlOrCmdK = (e.ctrlKey || e.metaKey) && key === 'k';
       const target = e.target;
@@ -166,40 +197,18 @@ export default function App() {
 
       e.preventDefault();
 
-      const isDesktop =
-        typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
-
-      if (isDesktop) {
-        if (!sidebarCollapsed && desktopSearchInputRef.current) {
-          desktopSearchInputRef.current.focus();
-          desktopSearchInputRef.current.select();
-          return;
-        }
-        if (activeView === 'documents' && !openDocId && docListSearchInputRef.current) {
-          docListSearchInputRef.current.focus();
-          docListSearchInputRef.current.select();
-          return;
-        }
-        setSidebarCollapsed(false);
-        requestAnimationFrame(() => {
-          desktopSearchInputRef.current?.focus();
-          desktopSearchInputRef.current?.select();
-        });
-      } else {
-        if (activeView === 'documents' && !openDocId && docListSearchInputRef.current) {
-          docListSearchInputRef.current.focus();
-          return;
-        }
-        setMobileDrawerOpen(true);
-        requestAnimationFrame(() => {
-          mobileSearchInputRef.current?.focus();
-        });
+      if (isCtrlOrCmdK && searchPopoverOpen) {
+        setSearchPopoverOpen(false);
+        return;
       }
+
+      setMobileDrawerOpen(false);
+      openSearchPopover();
     };
 
     window.addEventListener('keydown', handleGlobalSearchShortcut);
     return () => window.removeEventListener('keydown', handleGlobalSearchShortcut);
-  }, [sidebarCollapsed, activeView, openDocId]);
+  }, [searchPopoverOpen, openSearchPopover]);
 
   // Toast Notification
   const [toast, setToast] = useState(null);
@@ -765,6 +774,17 @@ export default function App() {
     [folders, sidebarSortedDocs, globalSearchQuery]
   );
 
+  const allDocumentTags = useMemo(() => {
+    const tagSet = new Set();
+    documents.forEach((doc) => {
+      (doc.tags || []).forEach((tag) => {
+        const clean = String(tag || '').trim();
+        if (clean) tagSet.add(clean);
+      });
+    });
+    return Array.from(tagSet).sort((a, b) => a.localeCompare(b));
+  }, [documents]);
+
   const renderSidebarDocItem = (doc, keyPrefix) => {
     const isActiveDoc = activeView === 'documents' && openDocId === doc.id;
     const docTags = (doc.tags || []).slice(0, 3);
@@ -826,13 +846,14 @@ export default function App() {
   };
 
   // Shared Sidebar Content (Desktop 1/5 column & Mobile < 768px drawer)
+  // Unified single-column vertical scroll container (flex flex-col h-screen overflow-y-auto)
   const renderSidebarInner = (isMobile = false) => {
     const isAllDocsOpen = allDocsExpanded || hasGlobalSearch;
 
     return (
-      <div className="flex flex-col h-full min-h-0 bg-[#FBFBFA] dark:bg-[#202020] text-[#262624] dark:text-[#ECECEA]">
-        {/* Brand Header + Collapse Button */}
-        <div className="h-12 px-3 border-b border-[#E8E8E5] dark:border-[#2F2F2F] flex items-center justify-between gap-2 shrink-0">
+      <div className="sidebar-scroll flex flex-col h-screen max-h-full overflow-y-auto overflow-x-hidden bg-[#FBFBFA] dark:bg-[#202020] text-[#262624] dark:text-[#ECECEA]">
+        {/* Brand Header + Compact Search Icon Button + Collapse/Close Button */}
+        <div className="sticky top-0 z-10 h-12 px-3 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA]/95 dark:bg-[#202020]/95 backdrop-blur-sm flex items-center justify-between gap-2 shrink-0">
           <button
             type="button"
             onClick={() => handleNavigate('documents')}
@@ -842,87 +863,49 @@ export default function App() {
             <span className="truncate">{t.appTitle}</span>
           </button>
 
-          {isMobile ? (
+          <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
-              onClick={() => setMobileDrawerOpen(false)}
-              aria-label={t.closeDrawer}
-              className="touch-target inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] cursor-pointer transition-colors duration-150"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setSidebarCollapsed(true)}
-              title={t.collapseSidebar}
-              aria-label={t.collapseSidebar}
-              className="p-1.5 rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150 shrink-0"
-            >
-              <PanelLeftClose className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-        {/* Global Search Bar (Notion-style, Ctrl+K / `/` shortcut, filters by title & tags) */}
-        <div className="px-2.5 py-2 border-b border-[#E8E8E5] dark:border-[#2F2F2F] shrink-0">
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-[#8E8D8A] dark:text-[#9B9A97] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              ref={isMobile ? mobileSearchInputRef : desktopSearchInputRef}
-              type="text"
-              value={globalSearchQuery}
-              onChange={(e) => setGlobalSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  if (globalSearchQuery) {
-                    setGlobalSearchQuery('');
-                  } else {
-                    e.currentTarget.blur();
-                  }
-                } else if (e.key === 'Enter' && hasGlobalSearch && sidebarFilteredDocs.length > 0) {
-                  e.preventDefault();
-                  handleOpenDocument(sidebarFilteredDocs[0].id, false);
-                }
+              onClick={() => {
+                if (isMobile) setMobileDrawerOpen(false);
+                openSearchPopover();
               }}
-              placeholder={t.globalSearchPlaceholder}
-              title={t.searchShortcutHint}
+              title={`${t.globalSearchPlaceholder} (${t.searchShortcutHint})`}
               aria-label={t.globalSearchPlaceholder}
-              className="w-full h-8 pl-8 pr-11 rounded-lg border border-[#E8E8E5] dark:border-[#323232] bg-[#FFFFFF] dark:bg-[#191919] text-[12.5px] text-[#262624] dark:text-[#ECECEA] placeholder:text-[#9B9A97] focus:outline-none focus:ring-2 focus:ring-indigo-500/40 transition-colors"
-            />
-            {globalSearchQuery ? (
+              className={`relative ${
+                isMobile ? 'touch-target' : 'p-1.5'
+              } inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150 shrink-0`}
+            >
+              <Search className="w-4 h-4" />
+              {hasGlobalSearch && (
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+              )}
+            </button>
+
+            {isMobile ? (
               <button
                 type="button"
-                onClick={() => setGlobalSearchQuery('')}
-                title={t.clearSearch}
-                aria-label={t.clearSearch}
-                className="p-0.5 rounded text-[#8E8D8A] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2F2F2F] absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer transition-colors"
+                onClick={() => setMobileDrawerOpen(false)}
+                aria-label={t.closeDrawer}
+                className="touch-target inline-flex items-center justify-center rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] cursor-pointer transition-colors duration-150"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
               </button>
             ) : (
-              <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded border border-[#E4E4E0] dark:border-[#343434] bg-[#FBFBFA] dark:bg-[#242424] text-[10px] font-medium text-[#9B9A97] absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none">
-                ^K
-              </kbd>
+              <button
+                type="button"
+                onClick={() => setSidebarCollapsed(true)}
+                title={t.collapseSidebar}
+                aria-label={t.collapseSidebar}
+                className="p-1.5 rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150 shrink-0"
+              >
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
             )}
           </div>
-          {hasGlobalSearch && (
-            <div className="mt-1 px-1 flex items-center justify-between text-[11px] text-[#6B6A66] dark:text-[#9B9A97]">
-              <span>{t.searchResultsCount(sidebarFilteredDocs.length)}</span>
-              {activeView !== 'documents' && (
-                <button
-                  type="button"
-                  onClick={() => handleNavigate('documents')}
-                  className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium cursor-pointer"
-                >
-                  {t.navDocuments}
-                </button>
-              )}
-            </div>
-          )}
         </div>
 
-        {/* 1. Expandable Task & Deadline Section (Max 50% Viewport Height) */}
+        {/* 1. Spacious Task & Deadline Section (flows smoothly within unified sidebar scroll) */}
         <TaskManager
           tasks={tasks}
           selectedTaskId={selectedTask?.id || null}
@@ -937,7 +920,7 @@ export default function App() {
         {/* 2. Feature Index Links + Collapsible All Documents & Custom Folders */}
         <nav
           aria-label={t.navSectionLabel}
-          className="flex-1 overflow-y-auto px-2.5 py-3 space-y-3 min-h-0"
+          className="px-3 py-4 space-y-4 shrink-0"
         >
           <div className="space-y-0.5">
             <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97]">
@@ -972,7 +955,7 @@ export default function App() {
           </div>
 
           {/* Collapsible "All Documents" (Tất cả tài liệu) & Custom Folder Accordions */}
-          <div className="pt-2 border-t border-[#E8E8E5] dark:border-[#2F2F2F] space-y-1">
+          <div className="pt-3 border-t border-[#E8E8E5] dark:border-[#2F2F2F] space-y-1">
             {/* Collapsible All Documents Section */}
             <div>
               <button
@@ -1064,33 +1047,34 @@ export default function App() {
           </div>
         </nav>
 
-        {/* 3. Account & Cloud Sync Widget (above Settings) */}
-        <CloudSyncWidget
-          user={cloudUser}
-          syncStatus={syncStatus}
-          onOpenAuth={() => {
-            setMobileDrawerOpen(false);
-            setAuthModalOpen(true);
-          }}
-          onSyncNow={handleManualSyncNow}
-          onSignOut={handleSignOut}
-          t={t}
-        />
-
-        {/* 4. Pinned Bottom-Left Settings Gear Icon */}
-        <div className="px-2.5 py-2.5 border-t border-[#E8E8E5] dark:border-[#2F2F2F] shrink-0 flex items-center justify-start">
-          <button
-            type="button"
-            onClick={() => {
+        {/* 3 & 4. Account Cloud Sync & Settings Controls (anchored at bottom when short, scrolls naturally when long) */}
+        <div className="mt-auto pt-3 shrink-0">
+          <CloudSyncWidget
+            user={cloudUser}
+            syncStatus={syncStatus}
+            onOpenAuth={() => {
               setMobileDrawerOpen(false);
-              setSettingsOpen(true);
+              setAuthModalOpen(true);
             }}
-            title={t.settingsButton}
-            aria-label={t.settingsButton}
-            className="h-10 w-10 rounded-lg inline-flex items-center justify-center text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
-          >
-            <Settings className="w-[18px] h-[18px]" />
-          </button>
+            onSyncNow={handleManualSyncNow}
+            onSignOut={handleSignOut}
+            t={t}
+          />
+
+          <div className="px-3 py-2.5 border-t border-[#E8E8E5] dark:border-[#2F2F2F] shrink-0 flex items-center justify-start">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileDrawerOpen(false);
+                setSettingsOpen(true);
+              }}
+              title={t.settingsButton}
+              aria-label={t.settingsButton}
+              className="h-10 w-10 rounded-lg inline-flex items-center justify-center text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
+            >
+              <Settings className="w-[18px] h-[18px]" />
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1105,14 +1089,28 @@ export default function App() {
       <div className="h-[100dvh] w-full flex flex-col overflow-hidden bg-[#FFFFFF] dark:bg-[#191919] text-[15px] text-[#262624] dark:text-[#ECECEA]">
         {/* Mobile Top Bar (< 768px) */}
         <header className="md:hidden no-print shrink-0 h-13 px-3 py-1.5 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => setMobileDrawerOpen(true)}
-            aria-label={t.openMenu}
-            className="touch-target inline-flex items-center justify-center rounded-lg text-[#555552] dark:text-[#C5C4C0] hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => setMobileDrawerOpen(true)}
+              aria-label={t.openMenu}
+              className="touch-target inline-flex items-center justify-center rounded-lg text-[#555552] dark:text-[#C5C4C0] hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <button
+              type="button"
+              onClick={openSearchPopover}
+              title={`${t.globalSearchPlaceholder} (${t.searchShortcutHint})`}
+              aria-label={t.globalSearchPlaceholder}
+              className="relative touch-target inline-flex items-center justify-center rounded-lg text-[#555552] dark:text-[#C5C4C0] hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
+            >
+              <Search className="w-[18px] h-[18px]" />
+              {hasGlobalSearch && (
+                <span className="absolute top-2.5 right-2.5 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+              )}
+            </button>
+          </div>
 
           <button
             type="button"
@@ -1158,19 +1156,33 @@ export default function App() {
 
         {/* Main Workspace Canvas (4/5 Width = 80%, or 100% when Sidebar Collapsed) */}
         <main className="flex-1 h-full min-h-0 min-w-0 flex flex-col overflow-hidden bg-[#FFFFFF] dark:bg-[#191919] relative">
-          {/* Desktop Expand Sidebar Toggle (shown cleanly when collapsed) */}
+          {/* Desktop Expand Sidebar Toggle + Compact Search Icon (shown cleanly when collapsed) */}
           {sidebarCollapsed && (
             <div className="hidden md:flex no-print items-center justify-between px-4 py-2 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA]/85 dark:bg-[#202020]/85 shrink-0 gap-2">
-              <button
-                type="button"
-                onClick={() => setSidebarCollapsed(false)}
-                title={t.expandSidebar}
-                aria-label={t.expandSidebar}
-                className="h-8 px-2.5 rounded-lg inline-flex items-center gap-1.5 text-[13px] font-medium text-[#555552] dark:text-[#C5C4C0] hover:text-[#191919] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
-              >
-                <PanelLeftOpen className="w-4 h-4" />
-                <span>{t.expandSidebar}</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSidebarCollapsed(false)}
+                  title={t.expandSidebar}
+                  aria-label={t.expandSidebar}
+                  className="h-8 px-2.5 rounded-lg inline-flex items-center gap-1.5 text-[13px] font-medium text-[#555552] dark:text-[#C5C4C0] hover:text-[#191919] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
+                >
+                  <PanelLeftOpen className="w-4 h-4" />
+                  <span>{t.expandSidebar}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={openSearchPopover}
+                  title={`${t.globalSearchPlaceholder} (${t.searchShortcutHint})`}
+                  aria-label={t.globalSearchPlaceholder}
+                  className="relative h-8 w-8 rounded-lg inline-flex items-center justify-center text-[#555552] dark:text-[#C5C4C0] hover:text-[#191919] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
+                >
+                  <Search className="w-4 h-4" />
+                  {hasGlobalSearch && (
+                    <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                  )}
+                </button>
+              </div>
               {activeView !== 'pomodoro' && (
                 <button
                   type="button"
@@ -1273,6 +1285,222 @@ export default function App() {
             className="hd-fade-in flex-1 bg-black/45 backdrop-blur-[1px]"
             onClick={() => setMobileDrawerOpen(false)}
           />
+        </div>
+      )}
+
+      {/* Notion-Style Command / Search Popover (triggered by Search icon or Ctrl+K / `/`) */}
+      {searchPopoverOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t.globalSearchPlaceholder}
+          onClick={closeSearchPopover}
+          className="hd-fade-in no-print fixed inset-0 z-50 flex items-start justify-center pt-[10vh] sm:pt-[13vh] px-4 bg-black/35 backdrop-blur-[2px]"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="hd-modal-in w-full max-w-lg rounded-2xl bg-[#FFFFFF] dark:bg-[#242424] border border-[#E8E8E5] dark:border-[#343434] shadow-2xl overflow-hidden flex flex-col"
+          >
+            {/* Search Input Header */}
+            <div className="px-4 h-14 border-b border-[#E8E8E5] dark:border-[#323232] flex items-center gap-2.5">
+              <Search className="w-4 h-4 text-[#6B6A66] dark:text-[#9B9A97] shrink-0" />
+              <input
+                ref={searchPopoverInputRef}
+                type="text"
+                value={globalSearchQuery}
+                onChange={(e) => setGlobalSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeSearchPopover();
+                  } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSearchActiveIndex((prev) =>
+                      sidebarFilteredDocs.length > 0
+                        ? (prev + 1) % sidebarFilteredDocs.length
+                        : 0
+                    );
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSearchActiveIndex((prev) =>
+                      sidebarFilteredDocs.length > 0
+                        ? (prev - 1 + sidebarFilteredDocs.length) % sidebarFilteredDocs.length
+                        : 0
+                    );
+                  } else if (e.key === 'Enter' && sidebarFilteredDocs.length > 0) {
+                    e.preventDefault();
+                    const picked =
+                      sidebarFilteredDocs[searchActiveIndex] || sidebarFilteredDocs[0];
+                    if (picked) {
+                      handleOpenDocument(picked.id, false);
+                      closeSearchPopover();
+                    }
+                  }
+                }}
+                placeholder={t.globalSearchPlaceholder}
+                aria-label={t.globalSearchPlaceholder}
+                className="flex-1 h-full bg-transparent text-[14.5px] text-[#262624] dark:text-[#ECECEA] placeholder:text-[#9B9A97] focus:outline-none"
+              />
+              {globalSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGlobalSearchQuery('');
+                    searchPopoverInputRef.current?.focus();
+                  }}
+                  title={t.clearSearch}
+                  aria-label={t.clearSearch}
+                  className="px-2 py-1 rounded-md text-[11.5px] font-medium text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#323232] cursor-pointer transition-colors"
+                >
+                  {t.clearSearch}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={closeSearchPopover}
+                title={t.closeSearch}
+                aria-label={t.closeSearch}
+                className="p-1.5 rounded-lg text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#262624] dark:hover:text-white hover:bg-[#F3F3F1] dark:hover:bg-[#323232] cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Quick Tag Filter Pills */}
+            {allDocumentTags.length > 0 && (
+              <div className="px-4 py-2.5 border-b border-[#E8E8E5] dark:border-[#323232] bg-[#FBFBFA] dark:bg-[#202020] flex items-center gap-1.5 overflow-x-auto">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#8E8D8A] dark:text-[#888783] shrink-0 mr-0.5">
+                  {t.quickTagsLabel}:
+                </span>
+                {allDocumentTags.slice(0, 12).map((tag) => {
+                  const isTagActive =
+                    normalizeSearchText(globalSearchQuery) === normalizeSearchText(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => {
+                        setGlobalSearchQuery(isTagActive ? '' : tag);
+                        searchPopoverInputRef.current?.focus();
+                      }}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] font-medium shrink-0 cursor-pointer transition-colors ${
+                        isTagActive
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-[#EFEFED] dark:bg-[#2E2E2E] text-[#555552] dark:text-[#C5C4C0] hover:bg-[#E5E5E1] dark:hover:bg-[#3A3A3A]'
+                      }`}
+                    >
+                      <Tag className="w-2.5 h-2.5" />
+                      <span>{tag}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Filtered Document Results (by Title & Tags) */}
+            <div className="max-h-[52vh] overflow-y-auto p-2 space-y-1">
+              {sidebarFilteredDocs.length === 0 ? (
+                <div className="py-10 px-4 text-center text-[13.5px] text-[#6B6A66] dark:text-[#9B9A97]">
+                  {t.noDocsFound}
+                </div>
+              ) : (
+                sidebarFilteredDocs.map((doc, idx) => {
+                  const isHighlighted = idx === searchActiveIndex;
+                  const docTags = (doc.tags || []).slice(0, 3);
+                  const docFolders = folders.filter((f) => (doc.folderIds || []).includes(f.id));
+
+                  return (
+                    <button
+                      key={doc.id}
+                      type="button"
+                      onMouseEnter={() => setSearchActiveIndex(idx)}
+                      onClick={() => {
+                        handleOpenDocument(doc.id, false);
+                        closeSearchPopover();
+                      }}
+                      className={`w-full px-3 py-2.5 rounded-xl text-left flex items-start gap-2.5 cursor-pointer transition-colors duration-100 ${
+                        isHighlighted
+                          ? 'bg-[#F3F3F1] dark:bg-[#303030] text-[#191919] dark:text-white'
+                          : 'text-[#262624] dark:text-[#ECECEA] hover:bg-[#F3F3F1]/70 dark:hover:bg-[#2C2C2C]'
+                      }`}
+                    >
+                      <FileText
+                        className={`w-4 h-4 mt-0.5 shrink-0 ${
+                          doc.docType === 'pdf-embed'
+                            ? 'text-rose-500 dark:text-rose-400'
+                            : 'text-indigo-600 dark:text-indigo-400'
+                        }`}
+                      />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <p className="text-[14px] font-medium truncate leading-snug">
+                          {doc.title}
+                        </p>
+                        {(docTags.length > 0 || docFolders.length > 0) && (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {docTags.map((tag) => {
+                              const isMatch =
+                                hasGlobalSearch && doesTagMatchQuery(tag, globalSearchQuery);
+                              return (
+                                <span
+                                  key={tag}
+                                  className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] leading-none font-medium ${
+                                    isMatch
+                                      ? 'bg-amber-200/85 dark:bg-amber-500/30 text-amber-950 dark:text-amber-200 ring-1 ring-amber-400/70 dark:ring-amber-400/50 font-semibold'
+                                      : 'bg-[#EFEFED] dark:bg-[#2A2A2A] text-[#6B6A66] dark:text-[#9B9A97]'
+                                  }`}
+                                >
+                                  <Tag
+                                    className={`w-2.5 h-2.5 ${
+                                      isMatch ? 'text-amber-700 dark:text-amber-300' : 'text-[#8E8D8A]'
+                                    }`}
+                                  />
+                                  <span>{tag}</span>
+                                </span>
+                              );
+                            })}
+                            {docFolders.slice(0, 2).map((folder) => (
+                              <span
+                                key={folder.id}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] leading-none text-[#6B6A66] dark:text-[#9B9A97] bg-[#F5F5F3] dark:bg-[#2A2A2A]"
+                              >
+                                <Folder className="w-2.5 h-2.5 text-amber-600 dark:text-amber-400" />
+                                <span className="truncate max-w-[110px]">{folder.name}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer Hints */}
+            <div className="px-4 py-2 border-t border-[#E8E8E5] dark:border-[#323232] bg-[#FBFBFA] dark:bg-[#202020] flex items-center justify-between text-[11.5px] text-[#6B6A66] dark:text-[#9B9A97]">
+              <span>{t.searchResultsCount(sidebarFilteredDocs.length)}</span>
+              <div className="flex items-center gap-3">
+                {hasGlobalSearch && activeView !== 'documents' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleNavigate('documents');
+                      closeSearchPopover();
+                    }}
+                    className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium cursor-pointer"
+                  >
+                    {t.navDocuments}
+                  </button>
+                )}
+                <span className="hidden sm:inline-flex items-center gap-1">
+                  <kbd className="px-1.5 py-0.5 rounded border border-[#E4E4E0] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#262626] text-[10px]">
+                    Esc
+                  </kbd>
+                  <span>{t.closeSearch}</span>
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

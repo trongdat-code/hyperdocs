@@ -44,7 +44,12 @@ const ZOOM_STEP = 10;
 const FONT_STORAGE_KEY = 'hyperdocs_v1_doc_font';
 
 const DOCUMENT_FONTS = [
-  { id: 'inter', label: 'Inter', stack: "'Inter', system-ui, -apple-system, sans-serif" },
+  {
+    id: 'google-sans',
+    label: 'Google Sans',
+    stack:
+      "'Google Sans Flex', 'Google Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  },
   { id: 'times', label: 'Times New Roman', stack: "'Times New Roman', Times, serif" },
   { id: 'georgia', label: 'Georgia', stack: 'Georgia, Cambria, serif' },
   { id: 'arial', label: 'Arial', stack: 'Arial, Helvetica, sans-serif' },
@@ -99,11 +104,12 @@ const docSanitizeSchema = {
 function loadSavedFontId() {
   try {
     const saved = localStorage.getItem(FONT_STORAGE_KEY);
+    if (saved === 'inter') return 'google-sans';
     if (saved && DOCUMENT_FONTS.some((f) => f.id === saved)) return saved;
   } catch {
     // Ignore storage errors
   }
-  return 'inter';
+  return 'google-sans';
 }
 
 function escapeRegExp(str) {
