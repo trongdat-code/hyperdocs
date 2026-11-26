@@ -590,6 +590,11 @@
     page-break-inside: avoid;
   }
 
+  .hd-sticky-card,
+  .hd-sticky-card * {
+    color: #000000 !important;
+  }
+
   .hd-sticky-header {
     background-color: #ffffff !important;
     border-bottom: 1px solid #000000 !important;

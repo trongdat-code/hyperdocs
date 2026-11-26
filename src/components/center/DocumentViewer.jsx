@@ -169,7 +169,8 @@ export default function DocumentViewer({
     (doc.docType !== 'note' &&
       Array.isArray(doc.tags) &&
       doc.tags.some((tg) => /^(pdf|google\s*docs?|gdoc|docx|word)$/i.test(String(tg).trim())));
-  const isNoteView = !isImportedDoc;
+  const isNoteView =
+    doc.type === 'note' || doc.docType === 'note' || !isImportedDoc;
   const [formulaToolboxOpen, setFormulaToolboxOpen] = useState(false);
   const [pdfViewerSrc, setPdfViewerSrc] = useState('');
   const [pdfViewerLoading, setPdfViewerLoading] = useState(false);
@@ -1667,9 +1668,9 @@ export default function DocumentViewer({
                 type="button"
                 onClick={handleExportPdf}
                 title={t.exportPdf}
-                className="h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#111111] hover:bg-[#27272A] text-[#FFFFFF] dark:bg-[#F4F4F5] dark:hover:bg-[#FFFFFF] dark:text-[#111111] text-[13px] font-semibold transition-colors duration-150 cursor-pointer"
+                className="h-9 px-3 inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#111111] hover:bg-[#27272A] text-[#FFFFFF] border border-[#3F3F46] text-[13px] font-semibold transition-colors duration-150 cursor-pointer"
               >
-                <Printer className="w-3.5 h-3.5" />
+                <Printer className="w-3.5 h-3.5 text-[#FFFFFF]" />
                 <span className="hidden sm:inline">{t.exportPdf}</span>
               </button>
             </>

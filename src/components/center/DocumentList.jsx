@@ -379,6 +379,7 @@ export default function DocumentList({
     const now = Date.now();
     const newDoc = {
       id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
+      type: 'note',
       docType: 'note',
       title: t.untitledDoc,
       tags: ['Notes'],
@@ -740,13 +741,13 @@ export default function DocumentList({
                 <span>{t.importLinkButton}</span>
               </button>
 
-              {/* AI A4 OCR Scanner (Crisp Monochrome Black & White) */}
+              {/* AI A4 OCR Scanner (Solid Black Background & Pure White Text/Icon) */}
               <button
                 type="button"
                 onClick={handleOpenScanner}
-                className="min-h-[38px] px-3.5 rounded-lg bg-[#111111] hover:bg-[#27272A] text-[#FFFFFF] dark:bg-[#F4F4F5] dark:hover:bg-[#FFFFFF] dark:text-[#111111] text-[13px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
+                className="min-h-[38px] px-3.5 rounded-lg bg-[#111111] hover:bg-[#27272A] text-[#FFFFFF] border border-[#3F3F46] text-[13px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
-                <ScanLine className="w-4 h-4" />
+                <ScanLine className="w-4 h-4 text-[#FFFFFF]" />
                 <span>{t.scanA4}</span>
               </button>
 

@@ -19,6 +19,8 @@ import {
   FolderOpen,
   Tag,
   Pin,
+  StickyNote,
+  Plus,
 } from 'lucide-react';
 import TaskManager from './components/left/TaskManager';
 import FocusMode from './components/left/FocusMode';
@@ -52,6 +54,22 @@ import {
 
 const ALL_DOCS_EXPANDED_KEY = 'hyperdocs_all_docs_expanded';
 const PINNED_DOCS_EXPANDED_KEY = 'hyperdocs_pinned_docs_expanded';
+const NOTES_SECTION_EXPANDED_KEY = 'hyperdocs_notes_section_expanded';
+
+function isNoteDocument(doc) {
+  if (!doc) return false;
+  if (doc.type === 'note' || doc.docType === 'note') return true;
+  if (
+    doc.docType === 'pdf-embed' ||
+    doc.docType === 'imported-pdf' ||
+    doc.docType === 'imported-gdoc' ||
+    doc.docType === 'imported-docx' ||
+    Boolean(doc.pdfUrl || doc.pdfOriginalUrl || doc.pdfDataUrl)
+  ) {
+    return false;
+  }
+  return Array.isArray(doc.tags) && doc.tags.some((tg) => /^(notes?|ghi\s*chú)$/i.test(String(tg).trim()));
+}
 
 function LivePomodoroBadge({ compact = false }) {
   const { isRunning, timeLeft, mode } = usePomodoro();
@@ -135,6 +153,14 @@ export default function App() {
       return true;
     }
   });
+  const [notesSectionExpanded, setNotesSectionExpanded] = useState(() => {
+    try {
+      const saved = localStorage.getItem(NOTES_SECTION_EXPANDED_KEY);
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
   const [sidebarExpandedFolderIds, setSidebarExpandedFolderIds] = useState([]);
 
   const searchPopoverInputRef = useRef(null);
@@ -166,6 +192,18 @@ export default function App() {
       const next = !prev;
       try {
         localStorage.setItem(PINNED_DOCS_EXPANDED_KEY, String(next));
+      } catch {
+        // ignore storage quota errors
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleNotesSectionExpanded = useCallback(() => {
+    setNotesSectionExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(NOTES_SECTION_EXPANDED_KEY, String(next));
       } catch {
         // ignore storage quota errors
       }
@@ -624,6 +662,24 @@ export default function App() {
     }
   };
 
+  const handleCreateQuickNote = () => {
+    const now = Date.now();
+    const newNote = {
+      id: `doc_${now}_${Math.random().toString(36).slice(2, 7)}`,
+      type: 'note',
+      docType: 'note',
+      title: t.untitledDoc,
+      tags: ['Notes'],
+      folderIds: [],
+      createdAt: now,
+      updatedAt: now,
+      content: '',
+    };
+    handleCreateDocument(newNote, true, true);
+    setNotesSectionExpanded(true);
+    setMobileDrawerOpen(false);
+  };
+
   const handleUpdateDocument = (updatedDoc) => {
     setDocuments((prev) => {
       const next = prev.map((d) => (d.id === updatedDoc.id ? updatedDoc : d));
@@ -798,6 +854,11 @@ export default function App() {
     [sidebarFilteredDocs]
   );
 
+  const sidebarNotesDocs = useMemo(
+    () => sidebarFilteredDocs.filter((doc) => isNoteDocument(doc)),
+    [sidebarFilteredDocs]
+  );
+
   const sidebarFilteredFolders = useMemo(
     () =>
       [...folders]
@@ -911,6 +972,7 @@ export default function App() {
   const renderSidebarInner = (isMobile = false) => {
     const isAllDocsOpen = allDocsExpanded || hasGlobalSearch;
     const isPinnedOpen = pinnedDocsExpanded || hasGlobalSearch;
+    const isNotesOpen = notesSectionExpanded || hasGlobalSearch;
 
     return (
       <div className="sidebar-scroll flex flex-col h-screen max-h-full overflow-y-auto overflow-x-hidden bg-[#FBFBFA] dark:bg-[#202020] text-[#262624] dark:text-[#ECECEA]">
@@ -1050,6 +1112,50 @@ export default function App() {
                     </p>
                   ) : (
                     sidebarPinnedDocs.map((doc) => renderSidebarDocItem(doc, 'pinned'))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Collapsible Dedicated "Notes" (Ghi chú) Section with Quick + Create Note */}
+            <div>
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={toggleNotesSectionExpanded}
+                  aria-expanded={isNotesOpen}
+                  className="flex-1 min-w-0 min-h-[34px] px-2 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold text-[#18181B] dark:text-[#E4E4E7] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] cursor-pointer transition-colors duration-150 text-left"
+                >
+                  <ChevronRight
+                    className={`w-3.5 h-3.5 text-[#52525B] dark:text-[#A1A1AA] shrink-0 transition-transform duration-150 ${
+                      isNotesOpen ? 'rotate-90' : ''
+                    }`}
+                  />
+                  <StickyNote className="w-3.5 h-3.5 text-[#52525B] dark:text-[#A1A1AA] shrink-0" />
+                  <span className="truncate flex-1">{t.notesSectionLabel}</span>
+                  <span className="px-1.5 py-0.5 rounded-full bg-[#EFEFED] dark:bg-[#2C2C2C] text-[#52525B] dark:text-[#A1A1AA] text-[11px] font-medium tabular-nums shrink-0">
+                    {sidebarNotesDocs.length}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateQuickNote}
+                  title={t.newDoc}
+                  aria-label={t.newDoc}
+                  className="h-7 w-7 rounded-lg inline-flex items-center justify-center text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-[#E4E4E7] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] cursor-pointer transition-colors duration-150 shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {isNotesOpen && (
+                <div className="mt-0.5 pl-3 space-y-0.5">
+                  {sidebarNotesDocs.length === 0 ? (
+                    <p className="px-2 py-1.5 text-[12px] text-[#8E8D8A] dark:text-[#888783] italic">
+                      {t.noNotesYetHint}
+                    </p>
+                  ) : (
+                    sidebarNotesDocs.map((doc) => renderSidebarDocItem(doc, 'notes'))
                   )}
                 </div>
               )}
