@@ -51,6 +51,206 @@ export function normalizeCssColorToHex(value) {
   return null;
 }
 
+const UNICODE_TO_LATEX_MAP = {
+  'α': '\\alpha ',
+  'β': '\\beta ',
+  'γ': '\\gamma ',
+  'Δ': '\\Delta ',
+  'δ': '\\delta ',
+  'ε': '\\varepsilon ',
+  'θ': '\\theta ',
+  'λ': '\\lambda ',
+  'μ': '\\mu ',
+  'π': '\\pi ',
+  'ρ': '\\rho ',
+  'σ': '\\sigma ',
+  'τ': '\\tau ',
+  'φ': '\\varphi ',
+  'ω': '\\omega ',
+  'Ω': '\\Omega ',
+  '∞': '\\infty ',
+  '≠': '\\neq ',
+  '≈': '\\approx ',
+  '≤': '\\le ',
+  '≥': '\\ge ',
+  '∈': '\\in ',
+  '⊂': '\\subset ',
+  '⇒': '\\Rightarrow ',
+  '⇔': '\\Leftrightarrow ',
+  '⊥': '\\perp ',
+  '∥': '\\parallel ',
+  '→': '\\to ',
+  '⇌': '\\rightleftharpoons ',
+  '↓': '\\downarrow ',
+  '↑': '\\uparrow ',
+  '·': '\\cdot ',
+  '×': '\\times ',
+  '°': '^\\circ ',
+};
+
+function normalizeInteractiveSlotText(raw) {
+  let out = String(raw || '')
+    .replace(/\u200B/g, '')
+    .replace(/\u00A0/g, ' ')
+    .trim();
+  if (!out) return '';
+  out = out.replace(/[αβγΔδεθλμπρστφωΩ∞≠≈≤≥∈⊂⇒⇔⊥∥→⇌↓↑·×°]/g, (ch) => UNICODE_TO_LATEX_MAP[ch] || ch);
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+function formatInteractiveChemSlot(raw) {
+  const clean = normalizeInteractiveSlotText(raw);
+  if (!clean) return '';
+  if (/\\[a-zA-Z]+|[_^]/.test(clean)) return clean;
+  return `\\text{${clean}}`;
+}
+
+function readSlotMap(eqEl) {
+  const slots = {};
+  eqEl.querySelectorAll?.('[data-slot]').forEach((slotEl) => {
+    const key = slotEl.getAttribute('data-slot');
+    if (key) {
+      slots[key] = (slotEl.textContent || '').replace(/\u200B/g, '').trim();
+    }
+  });
+  return slots;
+}
+
+/**
+ * Compile an inline interactive `.hd-eq` widget DOM node into clean KaTeX LaTeX.
+ */
+export function buildLatexFromEqElement(eqEl) {
+  const eqType = eqEl?.getAttribute?.('data-eq-type');
+  if (!eqType) return { latex: '', displayMode: false };
+  const s = readSlotMap(eqEl);
+  const val = (k, fallback = '') => normalizeInteractiveSlotText(s[k]) || fallback;
+  const chem = (k, fallback = '') => formatInteractiveChemSlot(s[k]) || fallback;
+
+  switch (eqType) {
+    case 'fraction':
+      return { latex: `\\frac{${val('num', '\\square')}}{${val('den', '\\square')}}`, displayMode: false };
+    case 'sqrt':
+      return { latex: `\\sqrt{${val('rad', '\\square')}}`, displayMode: false };
+    case 'nthroot':
+      return { latex: `\\sqrt[${val('idx', 'n')}]{${val('rad', '\\square')}}`, displayMode: false };
+    case 'power':
+      return { latex: `${val('base', 'x')}^{${val('exp', 'n')}}`, displayMode: false };
+    case 'subscript':
+      return { latex: `${val('base', 'x')}_{${val('sub', 'n')}}`, displayMode: false };
+    case 'integral': {
+      const lo = val('lower');
+      const hi = val('upper');
+      const bounds = lo || hi ? `_{${lo || 'a'}}^{${hi || 'b'}}` : '';
+      return {
+        latex: `\\int${bounds} ${val('expr', 'f(x)')}\\,d${val('var', 'x')}`,
+        displayMode: false,
+      };
+    }
+    case 'limit': {
+      const expr = val('expr');
+      const head = `\\lim_{${val('var', 'x')} \\to ${val('target', '\\infty')}}`;
+      return { latex: expr ? `${head} ${expr}` : head, displayMode: false };
+    }
+    case 'sum': {
+      const expr = val('expr');
+      const head = `\\sum_{${val('lower', 'i=1')}}^{${val('upper', 'n')}}`;
+      return { latex: expr ? `${head} ${expr}` : head, displayMode: false };
+    }
+    case 'cases': {
+      const rows = [val('eq1', '\\square'), val('eq2', '\\square')];
+      const eq3 = val('eq3');
+      if (eq3) rows.push(eq3);
+      return { latex: `\\begin{cases} ${rows.join(' \\\\ ')} \\end{cases}`, displayMode: true };
+    }
+    case 'vector':
+      return { latex: `\\vec{${val('sym', 'a')}}`, displayMode: false };
+    case 'angle':
+      return { latex: `\\widehat{${val('sym', 'ABC')}}`, displayMode: false };
+    case 'chemArrow':
+      return { latex: `\\xrightarrow{${chem('above', 't^\\circ')}}`, displayMode: false };
+    case 'oxidation':
+      return {
+        latex: `\\overset{${val('num', '+n')}}{${chem('el', '\\text{X}')}}`,
+        displayMode: false,
+      };
+    case 'molarity':
+      return { latex: `[${chem('species', '\\text{M}')}]`, displayMode: false };
+    case 'ionPos':
+      return { latex: `${chem('base', '\\text{M}')}^{${val('charge')}+}`, displayMode: false };
+    case 'ionNeg':
+      return { latex: `${chem('base', '\\text{X}')}^{${val('charge')}-}`, displayMode: false };
+    default:
+      return { latex: '', displayMode: false };
+  }
+}
+
+/**
+ * Render an inline interactive visual formula widget HTML string with clickable
+ * `contenteditable="true"` blank slots arranged in true mathematical geometry.
+ */
+export function renderInteractiveEqHtml(eqType, initial = {}) {
+  const slot = (name, ph = '', cls = '') => {
+    const val = initial[name] ? escapeHtml(initial[name]) : '';
+    return `<span class="hd-slot ${cls}" contenteditable="true" data-slot="${escapeAttr(name)}" data-placeholder="${escapeAttr(ph)}">${val}</span>`;
+  };
+
+  let inner = '';
+  switch (eqType) {
+    case 'fraction':
+      inner = `<span class="hd-eq-frac"><span class="hd-eq-frac-num">${slot('num', 'a')}</span><span class="hd-eq-frac-bar" aria-hidden="true"></span><span class="hd-eq-frac-den">${slot('den', 'b')}</span></span>`;
+      break;
+    case 'sqrt':
+      inner = `<span class="hd-eq-root"><svg class="hd-eq-radical-svg" viewBox="0 0 18 28" fill="none" aria-hidden="true"><path d="M1.5 16.5 L5.5 16.5 L9.2 26 L16.2 2 L18 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="hd-eq-radicand">${slot('rad', 'x')}</span></span>`;
+      break;
+    case 'nthroot':
+      inner = `<span class="hd-eq-root hd-eq-nthroot"><span class="hd-eq-root-idx">${slot('idx', 'n', 'hd-slot-sm')}</span><svg class="hd-eq-radical-svg" viewBox="0 0 18 28" fill="none" aria-hidden="true"><path d="M1.5 16.5 L5.5 16.5 L9.2 26 L16.2 2 L18 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="hd-eq-radicand">${slot('rad', 'x')}</span></span>`;
+      break;
+    case 'power':
+      inner = `<span class="hd-eq-script">${slot('base', 'x')}<sup class="hd-eq-sup">${slot('exp', 'n', 'hd-slot-sm')}</sup></span>`;
+      break;
+    case 'subscript':
+      inner = `<span class="hd-eq-script">${slot('base', 'x')}<sub class="hd-eq-sub">${slot('sub', 'n', 'hd-slot-sm')}</sub></span>`;
+      break;
+    case 'integral':
+      inner = `<span class="hd-eq-bigop"><span class="hd-eq-bigop-stack">${slot('upper', 'b', 'hd-slot-xs')}<span class="hd-eq-bigop-sym">∫</span>${slot('lower', 'a', 'hd-slot-xs')}</span>${slot('expr', 'f(x)')}<span class="hd-eq-lit">d</span>${slot('var', 'x', 'hd-slot-sm')}</span>`;
+      break;
+    case 'limit':
+      inner = `<span class="hd-eq-lim"><span class="hd-eq-lim-stack"><span class="hd-eq-lim-word">lim</span><span class="hd-eq-lim-sub">${slot('var', 'x', 'hd-slot-xs')}<span class="hd-eq-lit-sm">→</span>${slot('target', '∞', 'hd-slot-xs')}</span></span>${slot('expr', 'f(x)')}</span>`;
+      break;
+    case 'sum':
+      inner = `<span class="hd-eq-bigop"><span class="hd-eq-bigop-stack">${slot('upper', 'n', 'hd-slot-xs')}<span class="hd-eq-bigop-sym">∑</span>${slot('lower', 'i=1', 'hd-slot-xs')}</span>${slot('expr', 'aᵢ')}</span>`;
+      break;
+    case 'cases':
+      inner = `<span class="hd-eq-cases"><span class="hd-eq-brace" aria-hidden="true">{</span><span class="hd-eq-cases-rows">${slot('eq1', 'x + y = 1', 'hd-slot-wide')}${slot('eq2', 'x - y = 0', 'hd-slot-wide')}</span></span>`;
+      break;
+    case 'vector':
+      inner = `<span class="hd-eq-accent"><span class="hd-eq-accent-top" aria-hidden="true">→</span>${slot('sym', 'a')}</span>`;
+      break;
+    case 'angle':
+      inner = `<span class="hd-eq-accent"><span class="hd-eq-accent-top" aria-hidden="true">^</span>${slot('sym', 'ABC')}</span>`;
+      break;
+    case 'chemArrow':
+      inner = `<span class="hd-eq-chem-arrow">${slot('above', 't°', 'hd-slot-sm')}<span class="hd-eq-arrow-line" aria-hidden="true"><span class="hd-eq-arrow-shaft"></span><span class="hd-eq-arrow-head">▸</span></span></span>`;
+      break;
+    case 'oxidation':
+      inner = `<span class="hd-eq-ox">${slot('num', '+n', 'hd-slot-xs')}${slot('el', 'X')}</span>`;
+      break;
+    case 'molarity':
+      inner = `<span class="hd-eq-molar"><span class="hd-eq-lit">[</span>${slot('species', 'M')}<span class="hd-eq-lit">]</span></span>`;
+      break;
+    case 'ionPos':
+      inner = `<span class="hd-eq-script">${slot('base', 'M')}<sup class="hd-eq-sup">${slot('charge', 'n', 'hd-slot-xs')}<span class="hd-eq-lit-sm">+</span></sup></span>`;
+      break;
+    case 'ionNeg':
+      inner = `<span class="hd-eq-script">${slot('base', 'X')}<sup class="hd-eq-sup">${slot('charge', 'n', 'hd-slot-xs')}<span class="hd-eq-lit-sm">−</span></sup></span>`;
+      break;
+    default:
+      return '';
+  }
+
+  return `<span class="hd-eq" contenteditable="false" data-eq-type="${escapeAttr(eqType)}">${inner}</span>`;
+}
+
 /**
  * Render a LaTeX expression into an atomic non-editable KaTeX chip HTML string.
  */
@@ -438,6 +638,16 @@ function createMarkdownTurndown() {
     },
   });
 
+  // Inline interactive visual equation widgets (`.hd-eq[data-eq-type]`) -> standard KaTeX `$...$` / `$$...$$`
+  td.addRule('hdInlineEq', {
+    filter: (node) => node.nodeType === 1 && node.hasAttribute('data-eq-type'),
+    replacement: (_content, node) => {
+      const { latex, displayMode } = buildLatexFromEqElement(node);
+      if (!latex) return '';
+      return displayMode ? `\n\n$$\n${latex}\n$$\n\n` : `$${latex}$`;
+    },
+  });
+
   // Ignore decorative callout icon & checklist checkbox inputs during Turndown text extraction
   td.addRule('hdChromeIgnore', {
     filter: (node) =>
@@ -767,6 +977,10 @@ function findMatchingAnnotationAncestor(node, editorEl, kind) {
 function isInsideNonEditable(node, editorEl) {
   let curr = node.nodeType === 3 ? node.parentElement : node;
   while (curr && curr !== editorEl) {
+    // Editable `.hd-slot` inside a `contenteditable="false"` `.hd-eq` IS editable!
+    if (curr.classList?.contains('hd-slot')) {
+      return false;
+    }
     if (curr.getAttribute?.('contenteditable') === 'false' || curr.hasAttribute?.('data-latex')) {
       return true;
     }
@@ -1485,4 +1699,266 @@ export function insertMathChipAtSelection(editorEl, savedRange, latex, displayMo
     sel.addRange(nextRange);
   }
   return true;
+}
+
+/**
+ * Place caret immediately before or after an inline `.hd-eq` widget in normal text.
+ */
+function exitInlineEq(editorEl, eqEl, side = 'after') {
+  if (!editorEl || !eqEl || !eqEl.parentNode) return;
+  const doc = editorEl.ownerDocument;
+  const sel = window.getSelection();
+  if (!sel) return;
+
+  if (side === 'after') {
+    let nextNode = eqEl.nextSibling;
+    if (!nextNode || nextNode.nodeType !== 3) {
+      nextNode = doc.createTextNode(' ');
+      eqEl.parentNode.insertBefore(nextNode, eqEl.nextSibling);
+    }
+    const r = doc.createRange();
+    r.setStart(nextNode, Math.min(1, nextNode.nodeValue.length));
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  } else {
+    let prevNode = eqEl.previousSibling;
+    if (!prevNode || prevNode.nodeType !== 3) {
+      prevNode = doc.createTextNode('');
+      eqEl.parentNode.insertBefore(prevNode, eqEl);
+    }
+    const r = doc.createRange();
+    r.setStart(prevNode, prevNode.nodeValue.length);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+}
+
+/**
+ * Insert an interactive inline visual equation widget (`.hd-eq`) directly at the cursor
+ * inside the WYSIWYG Note editor and auto-focus its first blank `.hd-slot`.
+ */
+export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType) {
+  if (!editorEl || !eqType) return false;
+  const html = renderInteractiveEqHtml(eqType);
+  if (!html) return false;
+
+  const doc = editorEl.ownerDocument;
+  const temp = doc.createElement('div');
+  temp.innerHTML = html;
+  const eqEl = temp.firstElementChild;
+  if (!eqEl) return false;
+
+  const sel = window.getSelection();
+  let range = getActiveRangeInEditor(editorEl, savedRange);
+
+  // If caret is currently inside an existing `.hd-eq` slot, exit right after that `.hd-eq` first
+  if (range) {
+    const existingEq = (
+      range.startContainer.nodeType === 1
+        ? range.startContainer
+        : range.startContainer.parentElement
+    )?.closest?.('.hd-eq');
+    if (existingEq && editorEl.contains(existingEq)) {
+      range = doc.createRange();
+      range.setStartAfter(existingEq);
+      range.collapse(true);
+    } else if (isInsideNonEditable(range.startContainer, editorEl)) {
+      const mathAncestor = (
+        range.startContainer.nodeType === 1
+          ? range.startContainer
+          : range.startContainer.parentElement
+      )?.closest?.('[data-latex]');
+      if (mathAncestor && mathAncestor.parentNode) {
+        range = doc.createRange();
+        range.setStartAfter(mathAncestor);
+        range.collapse(true);
+      }
+    }
+  }
+
+  if (!range) {
+    let targetP = editorEl.lastElementChild;
+    if (!targetP || targetP.nodeName !== 'P') {
+      targetP = doc.createElement('p');
+      editorEl.appendChild(targetP);
+    }
+    targetP.appendChild(eqEl);
+    targetP.appendChild(doc.createTextNode(' '));
+  } else {
+    range.deleteContents();
+    range.insertNode(eqEl);
+    const afterSpace = doc.createTextNode(' ');
+    eqEl.parentNode.insertBefore(afterSpace, eqEl.nextSibling);
+  }
+
+  // Auto-focus the first empty `.hd-slot` inside the newly inserted inline equation
+  const firstSlot = eqEl.querySelector('.hd-slot');
+  if (firstSlot && sel) {
+    firstSlot.focus();
+    const slotRange = doc.createRange();
+    slotRange.selectNodeContents(firstSlot);
+    slotRange.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(slotRange);
+  }
+
+  return true;
+}
+
+/**
+ * Insert a single math/science symbol cleanly:
+ *  - If caret is inside an active `.hd-slot`, inserts the clean symbol glyph directly inside the slot.
+ *  - Otherwise inserts a rendered KaTeX chip directly at the cursor and places the caret right after it.
+ */
+export function insertSymbolAtSelection(editorEl, savedRange, latex, inlineGlyph = '') {
+  if (!editorEl) return false;
+  const range = getActiveRangeInEditor(editorEl, savedRange);
+  const slotEl = range
+    ? (range.startContainer.nodeType === 1
+        ? range.startContainer
+        : range.startContainer.parentElement
+      )?.closest?.('.hd-slot')
+    : null;
+
+  if (slotEl && editorEl.contains(slotEl) && inlineGlyph) {
+    const sel = window.getSelection();
+    range.deleteContents();
+    const textNode = editorEl.ownerDocument.createTextNode(inlineGlyph);
+    range.insertNode(textNode);
+    const nextRange = editorEl.ownerDocument.createRange();
+    nextRange.setStartAfter(textNode);
+    nextRange.collapse(true);
+    sel?.removeAllRanges();
+    sel?.addRange(nextRange);
+    return true;
+  }
+
+  return insertMathChipAtSelection(editorEl, savedRange, latex, false);
+}
+
+/**
+ * Smooth keyboard navigation inside inline `.hd-eq` `.hd-slot` fields:
+ *  - `Tab` / `Shift+Tab`: jump between slots, or exit cleanly past the formula.
+ *  - `ArrowRight` at end of slot / `ArrowLeft` at start of slot: move to adjacent slot or exit cleanly.
+ *  - `Enter`: advance to next slot or exit cleanly after the formula (prevents line breaks inside slots).
+ *  - `Backspace` on an empty formula: removes the empty `.hd-eq` widget cleanly.
+ *
+ * Returns `{ handled: boolean, mutated: boolean }`.
+ */
+export function handleInlineEqKeyDown(editorEl, e) {
+  if (!editorEl) return { handled: false, mutated: false };
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return { handled: false, mutated: false };
+
+  const range = sel.getRangeAt(0);
+  const startEl =
+    range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+  const slotEl = startEl?.closest?.('.hd-slot');
+  if (!slotEl || !editorEl.contains(slotEl)) return { handled: false, mutated: false };
+
+  const eqEl = slotEl.closest('.hd-eq');
+  if (!eqEl) return { handled: false, mutated: false };
+
+  const slots = Array.from(eqEl.querySelectorAll('.hd-slot'));
+  const idx = slots.indexOf(slotEl);
+
+  const focusSlot = (targetSlot, toEnd = true) => {
+    targetSlot.focus();
+    const r = editorEl.ownerDocument.createRange();
+    r.selectNodeContents(targetSlot);
+    r.collapse(!toEnd);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  };
+
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    if (e.shiftKey) {
+      if (idx > 0) focusSlot(slots[idx - 1], true);
+      else exitInlineEq(editorEl, eqEl, 'before');
+    } else if (idx >= 0 && idx < slots.length - 1) {
+      focusSlot(slots[idx + 1], false);
+    } else {
+      exitInlineEq(editorEl, eqEl, 'after');
+    }
+    return { handled: true, mutated: false };
+  }
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (idx >= 0 && idx < slots.length - 1) {
+      focusSlot(slots[idx + 1], false);
+    } else {
+      exitInlineEq(editorEl, eqEl, 'after');
+    }
+    return { handled: true, mutated: false };
+  }
+
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    exitInlineEq(editorEl, eqEl, 'after');
+    return { handled: true, mutated: false };
+  }
+
+  if (e.key === 'ArrowRight' && range.collapsed) {
+    const slotLen = (slotEl.textContent || '').length;
+    const caretAtEnd =
+      (range.startContainer === slotEl && range.startOffset >= slotEl.childNodes.length) ||
+      (range.startContainer.nodeType === 3 &&
+        range.startOffset >= range.startContainer.nodeValue.length &&
+        !range.startContainer.nextSibling) ||
+      slotLen === 0;
+    if (caretAtEnd) {
+      e.preventDefault();
+      if (idx >= 0 && idx < slots.length - 1) {
+        focusSlot(slots[idx + 1], false);
+      } else {
+        exitInlineEq(editorEl, eqEl, 'after');
+      }
+      return { handled: true, mutated: false };
+    }
+  }
+
+  if (e.key === 'ArrowLeft' && range.collapsed) {
+    const caretAtStart =
+      range.startOffset === 0 &&
+      (range.startContainer === slotEl || !range.startContainer.previousSibling);
+    if (caretAtStart) {
+      e.preventDefault();
+      if (idx > 0) {
+        focusSlot(slots[idx - 1], true);
+      } else {
+        exitInlineEq(editorEl, eqEl, 'before');
+      }
+      return { handled: true, mutated: false };
+    }
+  }
+
+  if (e.key === 'Backspace' && range.collapsed) {
+    const allEmpty = slots.every((sl) => !(sl.textContent || '').replace(/\u200B/g, '').trim());
+    if (allEmpty) {
+      e.preventDefault();
+      const parent = eqEl.parentNode;
+      const prev = eqEl.previousSibling;
+      eqEl.remove();
+      if (prev && prev.nodeType === 3) {
+        const r = editorEl.ownerDocument.createRange();
+        r.setStart(prev, prev.nodeValue.length);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      } else if (parent) {
+        const r = editorEl.ownerDocument.createRange();
+        r.selectNodeContents(parent);
+        r.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+      return { handled: true, mutated: true };
+    }
+  }
+
+  return { handled: false, mutated: false };
 }

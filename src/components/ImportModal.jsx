@@ -730,11 +730,7 @@ export default function ImportModal({
             <button
               type="submit"
               disabled={!canSubmit}
-              className={`min-h-[40px] px-5 rounded-lg disabled:opacity-50 text-white text-[14px] font-semibold inline-flex items-center gap-2 cursor-pointer transition-colors duration-150 ${
-                effectiveType === 'pdf'
-                  ? 'bg-indigo-600 hover:bg-indigo-700'
-                  : 'bg-sky-600 hover:bg-sky-700'
-              }`}
+              className="min-h-[40px] px-5 rounded-lg bg-[#111111] hover:bg-[#27272A] text-[#FFFFFF] border border-[#3F3F46] disabled:opacity-50 text-[14px] font-semibold inline-flex items-center gap-2 cursor-pointer transition-colors duration-150"
             >
               {isSubmitting ? (
                 <Loader2 className="w-4 h-4 animate-spin" />

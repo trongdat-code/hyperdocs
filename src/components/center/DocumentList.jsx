@@ -731,13 +731,13 @@ export default function DocumentList({
                 <span>{t.newFolder}</span>
               </button>
 
-              {/* Unified Import Link (auto-detects Google Docs & PDF / Google Drive URLs) */}
+              {/* Unified Import Link (Solid Black Background & Pure White Text/Icon) */}
               <button
                 type="button"
                 onClick={handleOpenImportModal}
-                className="min-h-[38px] px-3 rounded-lg border border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A] text-[#111111] dark:text-[#F4F4F5] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
+                className="min-h-[38px] px-3.5 rounded-lg bg-[#111111] hover:bg-[#27272A] text-[#FFFFFF] border border-[#3F3F46] text-[13px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
-                <Link2 className="w-4 h-4 text-[#52525B] dark:text-[#A1A1AA]" />
+                <Link2 className="w-4 h-4 text-[#FFFFFF]" />
                 <span>{t.importLinkButton}</span>
               </button>
 
@@ -751,18 +751,18 @@ export default function DocumentList({
                 <span>{t.scanA4}</span>
               </button>
 
-              {/* Upload .md / .txt / .docx / .pdf */}
+              {/* Upload .md / .txt / .docx / .pdf (Solid Black Background & Pure White Text/Icon) */}
               <button
                 type="button"
                 disabled={Boolean(pdfStatusMode)}
                 onClick={() => triggerUploadIntoFolders([])}
                 title=".md, .txt, .docx, .pdf"
-                className="min-h-[38px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF] dark:bg-[#202020] hover:bg-[#F3F3F1] dark:hover:bg-[#262626] disabled:opacity-50 text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
+                className="min-h-[38px] px-3.5 rounded-lg bg-[#111111] hover:bg-[#27272A] text-[#FFFFFF] border border-[#3F3F46] disabled:opacity-50 text-[13px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
               >
                 {pdfStatusMode ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                  <Loader2 className="w-4 h-4 animate-spin text-[#FFFFFF]" />
                 ) : (
-                  <Upload className="w-4 h-4" />
+                  <Upload className="w-4 h-4 text-[#FFFFFF]" />
                 )}
                 <span>{t.uploadFile}</span>
               </button>

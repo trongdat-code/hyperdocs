@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import katex from 'katex';
 import {
   ArrowLeft,
   ZoomIn,
@@ -48,11 +47,12 @@ import {
   applyRichAnnotationToSelection,
   editorHtmlToMarkdown,
   handleChecklistEnter,
+  handleInlineEqKeyDown,
   indentListItem,
   insertCalloutBlock,
-  insertMathChipAtSelection,
+  insertInteractiveEqAtSelection,
+  insertSymbolAtSelection,
   markdownToEditorHtml,
-  renderMathChipHtml,
   sanitizePastedHtml,
   toggleHeadingBlock,
   toggleListBlock,
@@ -184,9 +184,6 @@ export default function DocumentViewer({
   // Floating Notion-style selection toolbar inside WYSIWYG canvas
   const [floatingSelection, setFloatingSelection] = useState(null);
 
-  // Inline click-to-edit KaTeX math formula popover
-  const [editingMath, setEditingMath] = useState(null); // { element, kind, latex, top, left }
-
   // Slash command `/` menu inside WYSIWYG canvas
   const [slashMenu, setSlashMenu] = useState(null); // { query, top, left, activeIndex }
 
@@ -228,7 +225,6 @@ export default function DocumentViewer({
     const activeDocSnapshot = doc;
     setIsSourceMode(false);
     setFloatingSelection(null);
-    setEditingMath(null);
     setSlashMenu(null);
     setFormulaToolboxOpen(false);
     setOpenMenu(null);
@@ -671,35 +667,32 @@ export default function DocumentViewer({
     [commitSaveImmediate, getLatestMarkdownContent]
   );
 
-  // ---------- Formula Toolbox Insertion (Note View Only) ----------
-  const handleInsertFormula = useCallback(
-    (latex, displayMode = false) => {
-      const cleanLatex = String(latex || '').trim();
-      if (!cleanLatex) return;
+  // ---------- Direct Inline Formula Insertion (Note View Only — Zero Raw LaTeX) ----------
+  const handleInsertFormulaTemplate = useCallback(
+    (eqType) => {
+      const el = editorRef.current;
+      if (!el || isSourceMode) return;
+      const inserted = insertInteractiveEqAtSelection(el, savedRangeRef.current, eqType);
+      if (!inserted) return;
 
-      if (isSourceMode) {
-        const textarea = textareaRef.current;
-        const snippet = displayMode ? `\n$$\n${cleanLatex}\n$$\n` : `$${cleanLatex}$`;
-        if (textarea) {
-          const start = textarea.selectionStart ?? draftContentRef.current.length;
-          const end = textarea.selectionEnd ?? start;
-          const nextContent =
-            draftContentRef.current.slice(0, start) + snippet + draftContentRef.current.slice(end);
-          setDraftContent(nextContent);
-          draftContentRef.current = nextContent;
-          commitSaveImmediate(draftTitleRef.current, nextContent, true);
-          requestAnimationFrame(() => {
-            textarea.focus();
-            const caret = start + snippet.length;
-            textarea.setSelectionRange(caret, caret);
-          });
-        }
-        return;
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+        savedRangeRef.current = sel.getRangeAt(0).cloneRange();
       }
 
+      const nextMd = editorHtmlToMarkdown(el);
+      lastSyncedMarkdownRef.current = nextMd;
+      draftContentRef.current = nextMd;
+      commitSaveImmediate(draftTitleRef.current, nextMd, true);
+    },
+    [isSourceMode, commitSaveImmediate]
+  );
+
+  const handleInsertFormulaSymbol = useCallback(
+    (latex, glyph = '') => {
       const el = editorRef.current;
-      if (!el) return;
-      const inserted = insertMathChipAtSelection(el, savedRangeRef.current, cleanLatex, displayMode);
+      if (!el || isSourceMode) return;
+      const inserted = insertSymbolAtSelection(el, savedRangeRef.current, latex, glyph);
       if (!inserted) return;
 
       const sel = window.getSelection();
@@ -849,6 +842,15 @@ export default function DocumentViewer({
   );
 
   const handleWysiwygKeyDown = (e) => {
+    // 1. Direct inline equation slot navigation (Tab / Shift+Tab / ArrowRight / ArrowLeft / Enter / Backspace)
+    const eqResult = handleInlineEqKeyDown(editorRef.current, e);
+    if (eqResult.handled) {
+      if (eqResult.mutated) {
+        handleWysiwygInput();
+      }
+      return;
+    }
+
     if (slashMenu && filteredSlashCommands.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -932,7 +934,8 @@ export default function DocumentViewer({
 
   const handleToggleSourceMode = () => {
     setFloatingSelection(null);
-    setEditingMath(null);
+    setSlashMenu(null);
+    setFormulaToolboxOpen(false);
     setOpenMenu(null);
     if (!isSourceMode) {
       // Visual WYSIWYG -> Markdown Source
@@ -1129,78 +1132,6 @@ export default function DocumentViewer({
     handleWysiwygInput();
   };
 
-  // Click any rendered KaTeX chip in WYSIWYG to edit its LaTeX formula inline
-  const handleWysiwygClick = (e) => {
-    const mathEl = e.target.closest?.('[data-latex]');
-    if (!mathEl || !editorRef.current?.contains(mathEl)) {
-      if (editingMath) setEditingMath(null);
-      return;
-    }
-
-    e.preventDefault();
-    e.stopPropagation();
-    setFloatingSelection(null);
-
-    const rect = mathEl.getBoundingClientRect();
-    const containerRect = readerScrollRef.current?.getBoundingClientRect();
-    if (!containerRect) return;
-
-    const top = Math.max(
-      12,
-      rect.bottom - containerRect.top + (readerScrollRef.current?.scrollTop || 0) + 8
-    );
-    const halfWidth = Math.min(190, containerRect.width / 2 - 12);
-    const rawCenter = rect.left - containerRect.left + rect.width / 2;
-    const left = Math.min(
-      Math.max(halfWidth + 8, rawCenter),
-      containerRect.width - halfWidth - 8
-    );
-
-    setEditingMath({
-      element: mathEl,
-      kind: mathEl.getAttribute('data-math-kind') === 'block' ? 'block' : 'inline',
-      latex: mathEl.getAttribute('data-latex') || '',
-      top,
-      left,
-    });
-  };
-
-  const handleSaveMathEdit = (e) => {
-    e?.preventDefault();
-    if (!editingMath || !editingMath.element?.isConnected) {
-      setEditingMath(null);
-      return;
-    }
-
-    const trimmed = editingMath.latex.trim();
-    if (!trimmed) {
-      editingMath.element.remove();
-    } else {
-      const temp = document.createElement('div');
-      temp.innerHTML = renderMathChipHtml(trimmed, editingMath.kind === 'block');
-      if (temp.firstElementChild) {
-        editingMath.element.replaceWith(temp.firstElementChild);
-      }
-    }
-
-    setEditingMath(null);
-    const nextMd = getLatestMarkdownContent();
-    commitSaveImmediate(draftTitleRef.current, nextMd, true);
-  };
-
-  const editingMathPreviewHtml = useMemo(() => {
-    if (!editingMath?.latex?.trim()) return '';
-    try {
-      return katex.renderToString(editingMath.latex.trim(), {
-        displayMode: editingMath.kind === 'block',
-        throwOnError: false,
-        strict: 'ignore',
-      });
-    } catch {
-      return '';
-    }
-  }, [editingMath?.latex, editingMath?.kind]);
-
   const handleAddTag = (e) => {
     e.preventDefault();
     const clean = tagDraft.trim();
@@ -1274,7 +1205,7 @@ export default function DocumentViewer({
 
   const handleExportPdf = () => {
     setFloatingSelection(null);
-    setEditingMath(null);
+    setSlashMenu(null);
     setOpenMenu(null);
     window.getSelection()?.removeAllRanges();
     flushPendingSave();
@@ -1807,40 +1738,22 @@ export default function DocumentViewer({
       {/* Inline Formatting Bar when in Markdown Source Mode */}
       {!isEmbeddedPdf && isSourceMode && (
         <div className="no-print px-4 sm:px-6 py-2 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] flex flex-wrap items-center justify-between gap-2 shrink-0">
-          <div className="flex flex-wrap items-center gap-2">
-            {renderAnnotationPalette(
-              (hex) => applyFormatInSourceEditor('color', hex),
-              (hex) => applyFormatInSourceEditor('highlight', hex),
-              false
-            )}
-            {isNoteView && (
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setFormulaToolboxOpen((v) => !v)}
-                aria-pressed={formulaToolboxOpen}
-                title={t.formulaToolboxTitle}
-                className={`h-8 px-2.5 rounded-lg border text-[12.5px] font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150 ${
-                  formulaToolboxOpen
-                    ? 'border-[#2563EB]/40 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/40 dark:bg-[#2563EB]/[0.16] dark:text-[#60A5FA] font-semibold'
-                    : 'border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] text-[#18181B] dark:text-[#E4E4E7] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A]'
-                }`}
-              >
-                <Sigma className="w-3.5 h-3.5" />
-                <span>{t.formulaToolboxBtn}</span>
-              </button>
-            )}
-          </div>
+          {renderAnnotationPalette(
+            (hex) => applyFormatInSourceEditor('color', hex),
+            (hex) => applyFormatInSourceEditor('highlight', hex),
+            false
+          )}
           <span className="text-[12px] text-[#6B6A66] dark:text-[#9B9A97] hidden lg:inline">
             {t.annotateHint}
           </span>
         </div>
       )}
 
-      {/* Categorized Math & Natural Sciences Formula Toolbox (Note View Only) */}
-      {isNoteView && formulaToolboxOpen && (
+      {/* Categorized Math & Natural Sciences Formula Toolbox (Visual Note View Only — Direct Inline Insertion) */}
+      {isNoteView && !isSourceMode && formulaToolboxOpen && (
         <FormulaToolbox
-          onInsert={handleInsertFormula}
+          onInsertTemplate={handleInsertFormulaTemplate}
+          onInsertSymbol={handleInsertFormulaSymbol}
           onClose={() => setFormulaToolboxOpen(false)}
           t={t}
         />
@@ -1951,7 +1864,6 @@ export default function DocumentViewer({
         onKeyUp={updateFloatingSelectionPosition}
         onScroll={() => {
           if (floatingSelection) setFloatingSelection(null);
-          if (editingMath) setEditingMath(null);
           if (slashMenu) setSlashMenu(null);
         }}
         className="relative flex-1 overflow-y-auto overflow-x-auto px-5 sm:px-10 lg:px-14 py-7 min-h-0"
@@ -2016,70 +1928,6 @@ export default function DocumentViewer({
               true
             )}
           </div>
-        )}
-
-        {/* Inline Click-to-Edit KaTeX Formula Popover */}
-        {!isSourceMode && editingMath && (
-          <form
-            onSubmit={handleSaveMathEdit}
-            style={{
-              top: `${editingMath.top}px`,
-              left: `${editingMath.left}px`,
-              transform: 'translateX(-50%)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-            className="no-print hd-modal-in absolute z-30 w-[min(380px,calc(100%-24px))] rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#3A3A3A] shadow-2xl p-3 space-y-2.5 font-sans"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11.5px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97]">
-                {t.editFormulaTitle}
-              </span>
-              <button
-                type="button"
-                onClick={() => setEditingMath(null)}
-                className="p-1 rounded-md text-[#6B6A66] hover:text-[#262624] dark:hover:text-white cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <input
-              type="text"
-              autoFocus
-              value={editingMath.latex}
-              onChange={(e) =>
-                setEditingMath((prev) => (prev ? { ...prev, latex: e.target.value } : null))
-              }
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  setEditingMath(null);
-                }
-              }}
-              className="w-full h-9 px-2.5 rounded-lg border border-[#E8E8E5] dark:border-[#3A3A3A] bg-[#FBFBFA] dark:bg-[#191919] font-mono text-[13px] text-[#262624] dark:text-[#ECECEA] focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-            />
-            {editingMathPreviewHtml && (
-              <div
-                className="px-2.5 py-2 rounded-lg bg-[#FBFBFA] dark:bg-[#191919] border border-[#E8E8E5] dark:border-[#323232] text-center overflow-x-auto text-[#262624] dark:text-[#ECECEA]"
-                dangerouslySetInnerHTML={{ __html: editingMathPreviewHtml }}
-              />
-            )}
-            <div className="flex items-center justify-end gap-1.5">
-              <button
-                type="button"
-                onClick={() => setEditingMath(null)}
-                className="h-8 px-3 rounded-lg border border-[#E8E8E5] dark:border-[#3A3A3A] text-[12.5px] font-medium text-[#555552] dark:text-[#C5C4C0] hover:bg-[#F3F3F1] dark:hover:bg-[#323232] cursor-pointer"
-              >
-                {t.cancel}
-              </button>
-              <button
-                type="submit"
-                className="h-8 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[12.5px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>{t.save}</span>
-              </button>
-            </div>
-          </form>
         )}
 
         {/* Inner Document Paper Container */}
@@ -2236,7 +2084,6 @@ export default function DocumentViewer({
               onKeyDown={handleWysiwygKeyDown}
               onBlur={flushPendingSave}
               onPaste={handleWysiwygPaste}
-              onClick={handleWysiwygClick}
               className="study-markdown hd-wysiwyg-editor min-h-[55vh] text-[#262624] dark:text-[#ECECEA]"
               style={{ fontSize: 'inherit', fontFamily: 'inherit' }}
             />

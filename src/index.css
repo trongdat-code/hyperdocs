@@ -492,6 +492,285 @@
   background-color: rgba(99, 102, 241, 0.08);
 }
 
+/* Direct Inline Interactive Formula Widgets (.hd-eq & .hd-slot) */
+.hd-eq {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 0.14em;
+  padding: 0.06em 0.16em;
+  border-radius: 5px;
+  font-family: KaTeX_Main, 'Times New Roman', serif;
+  line-height: 1.2;
+  transition: background-color 140ms ease;
+}
+
+.hd-eq:focus-within {
+  background-color: rgba(37, 99, 235, 0.07);
+}
+
+.dark .hd-eq:focus-within {
+  background-color: rgba(96, 165, 250, 0.12);
+}
+
+.hd-slot {
+  display: inline-block;
+  min-width: 1.05em;
+  min-height: 1.1em;
+  padding: 0 0.16em;
+  border-radius: 3px;
+  text-align: center;
+  outline: none;
+  cursor: text;
+  white-space: nowrap;
+  vertical-align: baseline;
+  transition: box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.hd-slot-sm {
+  font-size: 0.78em;
+  min-width: 0.9em;
+}
+
+.hd-slot-xs {
+  font-size: 0.68em;
+  min-width: 0.85em;
+}
+
+.hd-slot-wide {
+  min-width: 4.5em;
+  text-align: left;
+  padding: 0.04em 0.25em;
+}
+
+.hd-slot:empty {
+  border: 1px dashed rgba(37, 99, 235, 0.5);
+  background-color: rgba(37, 99, 235, 0.05);
+}
+
+.dark .hd-slot:empty {
+  border-color: rgba(96, 165, 250, 0.55);
+  background-color: rgba(37, 99, 235, 0.14);
+}
+
+.hd-slot:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(113, 113, 122, 0.65);
+  pointer-events: none;
+}
+
+.hd-slot:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1.5px rgba(37, 99, 235, 0.45);
+  background-color: rgba(239, 246, 255, 0.85);
+}
+
+.dark .hd-slot:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 1.5px rgba(96, 165, 250, 0.45);
+  background-color: rgba(37, 99, 235, 0.22);
+}
+
+/* Fraction */
+.hd-eq-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  gap: 0.1em;
+}
+
+.hd-eq-frac-bar {
+  display: block;
+  width: 100%;
+  min-width: 1.5em;
+  height: 1.4px;
+  background-color: currentColor;
+}
+
+/* Square root & Nth root */
+.hd-eq-root {
+  display: inline-flex;
+  align-items: stretch;
+  vertical-align: middle;
+}
+
+.hd-eq-root-idx {
+  align-self: flex-start;
+  margin-right: -0.25em;
+  margin-top: -0.15em;
+  z-index: 1;
+}
+
+.hd-eq-radical-svg {
+  width: 0.82em;
+  height: 1.45em;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.hd-eq-radicand {
+  display: inline-flex;
+  align-items: center;
+  border-top: 1.4px solid currentColor;
+  padding: 0.08em 0.14em 0 0.08em;
+}
+
+/* Superscript / Subscript */
+.hd-eq-script {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.hd-eq-sup {
+  font-size: 0.82em;
+  vertical-align: super;
+  margin-left: 0.04em;
+  top: -0.45em;
+  position: relative;
+}
+
+.hd-eq-sub {
+  font-size: 0.82em;
+  vertical-align: sub;
+  margin-left: 0.04em;
+  bottom: -0.25em;
+  position: relative;
+}
+
+/* Integral & Sum */
+.hd-eq-bigop {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.16em;
+  vertical-align: middle;
+}
+
+.hd-eq-bigop-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  gap: 0.06em;
+}
+
+.hd-eq-bigop-sym {
+  font-size: 1.45em;
+  line-height: 0.95;
+}
+
+/* Limit */
+.hd-eq-lim {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+  vertical-align: middle;
+}
+
+.hd-eq-lim-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.05;
+  gap: 0.05em;
+}
+
+.hd-eq-lim-word {
+  font-size: 1em;
+}
+
+.hd-eq-lim-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.08em;
+}
+
+/* Cases (System of equations) */
+.hd-eq-cases {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18em;
+  vertical-align: middle;
+}
+
+.hd-eq-brace {
+  font-size: 2.3em;
+  font-weight: 300;
+  line-height: 0.9;
+}
+
+.hd-eq-cases-rows {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.18em;
+}
+
+/* Vector & Angle accents */
+.hd-eq-accent {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.hd-eq-accent-top {
+  font-size: 0.78em;
+  line-height: 0.75;
+  margin-bottom: -0.05em;
+}
+
+/* Chemistry reaction arrow & oxidation state */
+.hd-eq-chem-arrow {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 0.22em;
+  gap: 0.04em;
+}
+
+.hd-eq-arrow-line {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 2.4em;
+}
+
+.hd-eq-arrow-shaft {
+  flex: 1;
+  height: 1.4px;
+  background-color: currentColor;
+}
+
+.hd-eq-arrow-head {
+  font-size: 0.75em;
+  line-height: 1;
+  margin-left: -0.2em;
+}
+
+.hd-eq-ox {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.05;
+  vertical-align: middle;
+}
+
+.hd-eq-molar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.04em;
+}
+
+.hd-eq-lit {
+  font-style: italic;
+  margin: 0 0.04em;
+}
+
+.hd-eq-lit-sm {
+  font-size: 0.78em;
+}
+
 /* Touch target helper */
 .touch-target {
   min-height: 44px;
@@ -550,9 +829,19 @@
   }
 
   .hd-math-inline,
-  .hd-math-block {
+  .hd-math-block,
+  .hd-eq {
     background: transparent !important;
     padding: 0 !important;
+    color: #000000 !important;
+  }
+
+  .hd-slot,
+  .hd-slot:empty {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    color: #000000 !important;
   }
 
   .study-markdown .hd-callout {
