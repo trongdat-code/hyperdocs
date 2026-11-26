@@ -260,14 +260,113 @@
   margin: 0.65em 0;
 }
 
+.study-markdown ul ul {
+  list-style-type: circle;
+  margin: 0.25em 0;
+}
+
+.study-markdown ul ul ul {
+  list-style-type: square;
+}
+
 .study-markdown ol {
   list-style-type: decimal;
   padding-left: 1.45em;
   margin: 0.65em 0;
 }
 
+.study-markdown ol ol {
+  list-style-type: lower-alpha;
+  margin: 0.25em 0;
+}
+
 .study-markdown li {
   margin: 0.28em 0;
+}
+
+/* Interactive Checklists / Sub-tasks */
+.study-markdown ul.hd-checklist {
+  list-style-type: none;
+  padding-left: 0.25em;
+  margin: 0.65em 0;
+}
+
+.study-markdown ul.hd-checklist ul.hd-checklist {
+  padding-left: 1.55em;
+  margin: 0.25em 0;
+}
+
+.study-markdown li.hd-checklist-item {
+  list-style-type: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.55em;
+  margin: 0.34em 0;
+}
+
+.study-markdown li.hd-checklist-item > ul,
+.study-markdown li.hd-checklist-item > ol {
+  flex-basis: 100%;
+  margin-top: 0.25em;
+}
+
+.study-markdown input.hd-checklist-box {
+  width: 1.05em;
+  height: 1.05em;
+  margin-top: 0.32em;
+  accent-color: #6366f1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.study-markdown span.hd-checklist-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.study-markdown li.hd-checklist-item[data-checked='true'] > span.hd-checklist-text {
+  text-decoration: line-through;
+  opacity: 0.62;
+}
+
+/* Structured Callout / Summary Box */
+.study-markdown .hd-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.85rem 1rem;
+  margin: 0.95rem 0;
+  border-radius: 10px;
+  border: 1px solid #e4e4e0;
+  border-left: 3.5px solid #6366f1;
+  background-color: #f8f8f6;
+}
+
+.dark .study-markdown .hd-callout {
+  border-color: #323232;
+  border-left-color: #818cf8;
+  background-color: #242428;
+}
+
+.study-markdown .hd-callout-icon {
+  font-size: 1.1em;
+  line-height: 1.5;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.study-markdown .hd-callout-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.study-markdown .hd-callout-body > p:first-child {
+  margin-top: 0;
+}
+
+.study-markdown .hd-callout-body > p:last-child {
+  margin-bottom: 0;
 }
 
 .study-markdown blockquote {
@@ -454,6 +553,47 @@
   .hd-math-block {
     background: transparent !important;
     padding: 0 !important;
+  }
+
+  .study-markdown .hd-callout {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #000000 !important;
+    border-left: 3px solid #000000 !important;
+    page-break-inside: avoid;
+  }
+
+  /* Strip sticky note colors to clean black-and-white bordered cards on print */
+  .hd-sticky-layer {
+    position: static !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10pt !important;
+    margin-top: 16pt !important;
+    padding-top: 10pt !important;
+    border-top: 1px solid #000000 !important;
+    pointer-events: auto !important;
+  }
+
+  .hd-sticky-card {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    width: auto !important;
+    height: auto !important;
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #000000 !important;
+    box-shadow: none !important;
+    border-radius: 4pt !important;
+    page-break-inside: avoid;
+  }
+
+  .hd-sticky-header {
+    background-color: #ffffff !important;
+    border-bottom: 1px solid #000000 !important;
+    color: #000000 !important;
   }
 
   .print-only-document pre {

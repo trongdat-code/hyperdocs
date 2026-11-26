@@ -18,6 +18,7 @@ import {
   Folder,
   FolderOpen,
   Tag,
+  Pin,
 } from 'lucide-react';
 import TaskManager from './components/left/TaskManager';
 import FocusMode from './components/left/FocusMode';
@@ -50,6 +51,7 @@ import {
 } from './utils/searchUtils';
 
 const ALL_DOCS_EXPANDED_KEY = 'hyperdocs_all_docs_expanded';
+const PINNED_DOCS_EXPANDED_KEY = 'hyperdocs_pinned_docs_expanded';
 
 function LivePomodoroBadge({ compact = false }) {
   const { isRunning, timeLeft, mode } = usePomodoro();
@@ -125,6 +127,14 @@ export default function App() {
       return true;
     }
   });
+  const [pinnedDocsExpanded, setPinnedDocsExpanded] = useState(() => {
+    try {
+      const saved = localStorage.getItem(PINNED_DOCS_EXPANDED_KEY);
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
   const [sidebarExpandedFolderIds, setSidebarExpandedFolderIds] = useState([]);
 
   const searchPopoverInputRef = useRef(null);
@@ -144,6 +154,18 @@ export default function App() {
       const next = !prev;
       try {
         localStorage.setItem(ALL_DOCS_EXPANDED_KEY, String(next));
+      } catch {
+        // ignore storage quota errors
+      }
+      return next;
+    });
+  }, []);
+
+  const togglePinnedDocsExpanded = useCallback(() => {
+    setPinnedDocsExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(PINNED_DOCS_EXPANDED_KEY, String(next));
       } catch {
         // ignore storage quota errors
       }
@@ -610,6 +632,16 @@ export default function App() {
     });
   };
 
+  const handleTogglePinDocument = useCallback((docId) => {
+    setDocuments((prev) => {
+      const next = prev.map((d) =>
+        d.id === docId ? { ...d, pinned: !d.pinned, updatedAt: Date.now() } : d
+      );
+      storageService.saveCollection(KEYS.DOCUMENTS, next);
+      return next;
+    });
+  }, []);
+
   const handleDeleteDocument = (docId) => {
     setDocuments((prev) => {
       const next = prev.filter((d) => d.id !== docId);
@@ -761,6 +793,11 @@ export default function App() {
     [sidebarSortedDocs, globalSearchQuery]
   );
 
+  const sidebarPinnedDocs = useMemo(
+    () => sidebarFilteredDocs.filter((doc) => Boolean(doc.pinned)),
+    [sidebarFilteredDocs]
+  );
+
   const sidebarFilteredFolders = useMemo(
     () =>
       [...folders]
@@ -787,38 +824,64 @@ export default function App() {
 
   const renderSidebarDocItem = (doc, keyPrefix) => {
     const isActiveDoc = activeView === 'documents' && openDocId === doc.id;
+    const isPinned = Boolean(doc.pinned);
     const docTags = (doc.tags || []).slice(0, 3);
     const matchingTags = hasGlobalSearch
       ? docTags.filter((tag) => doesTagMatchQuery(tag, globalSearchQuery))
       : [];
 
     return (
-      <button
+      <div
         key={`${keyPrefix}_${doc.id}`}
-        type="button"
-        onClick={() => handleOpenDocument(doc.id, false)}
-        title={doc.title}
-        className={`w-full px-2 py-1.5 rounded-lg text-left transition-colors duration-150 cursor-pointer flex flex-col gap-1 ${
+        className={`group w-full rounded-lg transition-colors duration-150 flex flex-col ${
           isActiveDoc
             ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 font-semibold'
             : 'text-[#555552] dark:text-[#B5B4B0] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] hover:text-[#191919] dark:hover:text-white'
         }`}
       >
-        <div className="flex items-center gap-1.5 min-w-0">
-          <FileText
-            className={`w-3.5 h-3.5 shrink-0 ${
-              doc.docType === 'pdf-embed'
-                ? 'text-rose-500 dark:text-rose-400'
-                : isActiveDoc
-                  ? 'text-indigo-600 dark:text-indigo-400'
-                  : 'text-[#8E8D8A] dark:text-[#888783]'
+        <div className="flex items-center gap-1 min-w-0 pr-1">
+          <button
+            type="button"
+            onClick={() => handleOpenDocument(doc.id, false)}
+            title={doc.title}
+            className="flex-1 min-w-0 px-2 py-1.5 text-left cursor-pointer flex items-center gap-1.5"
+          >
+            <FileText
+              className={`w-3.5 h-3.5 shrink-0 ${
+                doc.docType === 'pdf-embed'
+                  ? 'text-rose-500 dark:text-rose-400'
+                  : isActiveDoc
+                    ? 'text-indigo-600 dark:text-indigo-400'
+                    : 'text-[#8E8D8A] dark:text-[#888783]'
+              }`}
+            />
+            <span className="truncate text-[13px] leading-snug flex-1">{doc.title}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleTogglePinDocument(doc.id);
+            }}
+            title={isPinned ? t.unpinDoc : t.pinDoc}
+            aria-label={isPinned ? t.unpinDoc : t.pinDoc}
+            aria-pressed={isPinned}
+            className={`p-1 rounded-md shrink-0 cursor-pointer transition-all duration-150 ${
+              isPinned
+                ? 'text-amber-500 dark:text-amber-400 opacity-100 hover:bg-amber-500/15'
+                : 'text-[#8E8D8A] dark:text-[#888783] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-[#E8E8E5]/70 dark:hover:bg-[#343434]'
             }`}
-          />
-          <span className="truncate text-[13px] leading-snug flex-1">{doc.title}</span>
+          >
+            <Pin className={`w-3 h-3 ${isPinned ? 'fill-current' : ''}`} />
+          </button>
         </div>
 
         {(matchingTags.length > 0 || (hasGlobalSearch && docTags.length > 0)) && (
-          <div className="flex flex-wrap items-center gap-1 pl-5">
+          <div
+            onClick={() => handleOpenDocument(doc.id, false)}
+            className="flex flex-wrap items-center gap-1 pl-7 pr-2 pb-1.5 cursor-pointer"
+          >
             {docTags.map((tag) => {
               const isMatch = doesTagMatchQuery(tag, globalSearchQuery);
               return (
@@ -841,7 +904,7 @@ export default function App() {
             })}
           </div>
         )}
-      </button>
+      </div>
     );
   };
 
@@ -849,6 +912,7 @@ export default function App() {
   // Unified single-column vertical scroll container (flex flex-col h-screen overflow-y-auto)
   const renderSidebarInner = (isMobile = false) => {
     const isAllDocsOpen = allDocsExpanded || hasGlobalSearch;
+    const isPinnedOpen = pinnedDocsExpanded || hasGlobalSearch;
 
     return (
       <div className="sidebar-scroll flex flex-col h-screen max-h-full overflow-y-auto overflow-x-hidden bg-[#FBFBFA] dark:bg-[#202020] text-[#262624] dark:text-[#ECECEA]">
@@ -954,8 +1018,41 @@ export default function App() {
             })}
           </div>
 
-          {/* Collapsible "All Documents" (Tất cả tài liệu) & Custom Folder Accordions */}
+          {/* Collapsible "Pinned" (Đã ghim), "All Documents" (Tất cả tài liệu) & Custom Folder Accordions */}
           <div className="pt-3 border-t border-[#E8E8E5] dark:border-[#2F2F2F] space-y-1">
+            {/* Collapsible Pinned Section (at the very top right above All Documents) */}
+            <div>
+              <button
+                type="button"
+                onClick={togglePinnedDocsExpanded}
+                aria-expanded={isPinnedOpen}
+                className="w-full min-h-[34px] px-2 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold text-[#262624] dark:text-[#ECECEA] hover:bg-[#F3F3F1] dark:hover:bg-[#2A2A2A] cursor-pointer transition-colors duration-150 text-left"
+              >
+                <ChevronRight
+                  className={`w-3.5 h-3.5 text-[#6B6A66] dark:text-[#9B9A97] shrink-0 transition-transform duration-150 ${
+                    isPinnedOpen ? 'rotate-90' : ''
+                  }`}
+                />
+                <Pin className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0 fill-amber-500/20" />
+                <span className="truncate flex-1">{t.pinnedSectionLabel}</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-[#EFEFED] dark:bg-[#2C2C2C] text-[#6B6A66] dark:text-[#9B9A97] text-[11px] font-medium tabular-nums shrink-0">
+                  {sidebarPinnedDocs.length}
+                </span>
+              </button>
+
+              {isPinnedOpen && (
+                <div className="mt-0.5 pl-3 space-y-0.5">
+                  {sidebarPinnedDocs.length === 0 ? (
+                    <p className="px-2 py-1.5 text-[12px] text-[#8E8D8A] dark:text-[#888783] italic">
+                      {t.noPinnedDocsHint}
+                    </p>
+                  ) : (
+                    sidebarPinnedDocs.map((doc) => renderSidebarDocItem(doc, 'pinned'))
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Collapsible All Documents Section */}
             <div>
               <button
@@ -1204,6 +1301,7 @@ export default function App() {
                   initialEditMode={openDocInEditMode}
                   onBack={() => setOpenDocId(null)}
                   onUpdateDocument={handleUpdateDocument}
+                  onTogglePin={handleTogglePinDocument}
                   onNotify={notify}
                   t={t}
                   lang={settings.language}
@@ -1221,6 +1319,7 @@ export default function App() {
                   onOpenDocument={(id) => handleOpenDocument(id, false)}
                   onCreateDocument={handleCreateDocument}
                   onUpdateDocument={handleUpdateDocument}
+                  onTogglePin={handleTogglePinDocument}
                   onDeleteDocument={handleDeleteDocument}
                   onCreateFolder={handleCreateFolder}
                   onUpdateFolder={handleUpdateFolder}

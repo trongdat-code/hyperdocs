@@ -27,6 +27,7 @@ import {
   Link2,
   Crop,
   RotateCcw,
+  Pin,
 } from 'lucide-react';
 import { fileToBase64, scanA4Document } from '../../services/geminiService';
 import {
@@ -58,6 +59,7 @@ export default function DocumentList({
   onOpenDocument,
   onCreateDocument,
   onUpdateDocument,
+  onTogglePin,
   onDeleteDocument,
   onCreateFolder,
   onUpdateFolder,
@@ -577,6 +579,12 @@ export default function DocumentList({
               <h3 className="font-medium text-[15px] leading-snug text-[#262624] dark:text-[#ECECEA] truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors duration-150">
                 {doc.title}
               </h3>
+              {doc.pinned && (
+                <Pin
+                  className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 fill-current shrink-0"
+                  aria-label={t.pinnedBadge}
+                />
+              )}
               {doc.docType === 'pdf-embed' && (
                 <span className="px-1.5 py-0.5 rounded-md bg-rose-500/12 text-rose-700 dark:text-rose-300 text-[10.5px] font-semibold uppercase tracking-wide shrink-0">
                   PDF
@@ -630,6 +638,22 @@ export default function DocumentList({
           className="flex items-center gap-1 shrink-0 self-end sm:self-center opacity-85 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity duration-150"
           onClick={(e) => e.stopPropagation()}
         >
+          {onTogglePin && (
+            <button
+              type="button"
+              onClick={() => onTogglePin(doc.id)}
+              title={doc.pinned ? t.unpinDoc : t.pinDoc}
+              aria-label={doc.pinned ? t.unpinDoc : t.pinDoc}
+              aria-pressed={Boolean(doc.pinned)}
+              className={`p-2 rounded-lg cursor-pointer transition-colors duration-150 ${
+                doc.pinned
+                  ? 'text-amber-500 dark:text-amber-400 hover:bg-amber-500/10'
+                  : 'text-[#6B6A66] hover:text-amber-600 dark:hover:text-amber-400 hover:bg-[#E8E8E5]/80 dark:hover:bg-[#343434]'
+              }`}
+            >
+              <Pin className={`w-3.5 h-3.5 ${doc.pinned ? 'fill-current' : ''}`} />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setAssigningDocId(doc.id)}

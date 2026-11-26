@@ -12,6 +12,7 @@ import {
   Download,
   Code2,
   Eye,
+  EyeOff,
   Tag,
   Plus,
   X,
@@ -24,6 +25,17 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
+  Pin,
+  Heading1,
+  Heading2,
+  Heading3,
+  List,
+  ListOrdered,
+  CheckSquare,
+  IndentIncrease,
+  IndentDecrease,
+  Lightbulb,
+  StickyNote,
 } from 'lucide-react';
 import {
   fetchPdfFileFromUrl,
@@ -34,10 +46,16 @@ import {
 import {
   applyRichAnnotationToSelection,
   editorHtmlToMarkdown,
+  handleChecklistEnter,
+  indentListItem,
+  insertCalloutBlock,
   markdownToEditorHtml,
   renderMathChipHtml,
   sanitizePastedHtml,
+  toggleHeadingBlock,
+  toggleListBlock,
 } from '../../utils/wysiwygSerializer';
+import StickyNoteLayer, { STICKY_NOTE_COLORS } from './StickyNoteLayer';
 
 const MAX_TAGS = 3;
 const MIN_ZOOM = 70;
@@ -117,6 +135,7 @@ export default function DocumentViewer({
   initialEditMode = false,
   onBack,
   onUpdateDocument,
+  onTogglePin,
   onNotify,
   t,
   lang,
@@ -128,6 +147,10 @@ export default function DocumentViewer({
   const [isSourceMode, setIsSourceMode] = useState(false);
   const [draftTitle, setDraftTitle] = useState(doc.title || '');
   const [draftContent, setDraftContent] = useState(doc.content || '');
+  const [stickyNotes, setStickyNotes] = useState(() =>
+    Array.isArray(doc.stickyNotes) ? doc.stickyNotes : []
+  );
+  const [stickyNotesVisible, setStickyNotesVisible] = useState(true);
   const [tagInputOpen, setTagInputOpen] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
   const [justAutoSaved, setJustAutoSaved] = useState(false);
@@ -149,6 +172,9 @@ export default function DocumentViewer({
   // Inline click-to-edit KaTeX math formula popover
   const [editingMath, setEditingMath] = useState(null); // { element, kind, latex, top, left }
 
+  // Slash command `/` menu inside WYSIWYG canvas
+  const [slashMenu, setSlashMenu] = useState(null); // { query, top, left, activeIndex }
+
   const readerScrollRef = useRef(null);
   const articleRef = useRef(null);
   const titleInputRef = useRef(null);
@@ -156,10 +182,12 @@ export default function DocumentViewer({
   const textareaRef = useRef(null);
   const toolbarMenuRef = useRef(null);
   const autoSaveTimerRef = useRef(null);
+  const stickySaveTimerRef = useRef(null);
   const savedRangeRef = useRef(null);
   const docRef = useRef(doc);
   const draftTitleRef = useRef(doc.title || '');
   const draftContentRef = useRef(doc.content || '');
+  const stickyNotesRef = useRef(Array.isArray(doc.stickyNotes) ? doc.stickyNotes : []);
   const lastHydratedDocIdRef = useRef(null);
   const lastSyncedMarkdownRef = useRef(null);
   const hasPendingSaveRef = useRef(false);
@@ -176,20 +204,33 @@ export default function DocumentViewer({
     draftContentRef.current = draftContent;
   }, [draftContent]);
 
+  useEffect(() => {
+    stickyNotesRef.current = stickyNotes;
+  }, [stickyNotes]);
+
   // Reset modes & flush any pending edit on previous document smoothly when switching documents
   useEffect(() => {
     const activeDocSnapshot = doc;
     setIsSourceMode(false);
     setFloatingSelection(null);
     setEditingMath(null);
+    setSlashMenu(null);
     setOpenMenu(null);
     savedRangeRef.current = null;
     setDraftTitle(doc.title || '');
     draftTitleRef.current = doc.title || '';
     setDraftContent(doc.content || '');
     draftContentRef.current = doc.content || '';
+    const nextNotes = Array.isArray(doc.stickyNotes) ? doc.stickyNotes : [];
+    setStickyNotes(nextNotes);
+    stickyNotesRef.current = nextNotes;
+    setStickyNotesVisible(true);
 
     return () => {
+      if (stickySaveTimerRef.current) {
+        clearTimeout(stickySaveTimerRef.current);
+        stickySaveTimerRef.current = null;
+      }
       if (hasPendingSaveRef.current && activeDocSnapshot?.docType !== 'pdf-embed') {
         if (autoSaveTimerRef.current) {
           clearTimeout(autoSaveTimerRef.current);
@@ -200,6 +241,7 @@ export default function DocumentViewer({
           ...activeDocSnapshot,
           title: draftTitleRef.current.trim() || t.untitledDoc,
           content: draftContentRef.current,
+          stickyNotes: stickyNotesRef.current,
           updatedAt: Date.now(),
         });
       }
@@ -217,7 +259,15 @@ export default function DocumentViewer({
       setDraftContent(doc.content || '');
       draftContentRef.current = doc.content || '';
     }
-  }, [doc.title, doc.content]);
+    if (Array.isArray(doc.stickyNotes)) {
+      const incomingJson = JSON.stringify(doc.stickyNotes);
+      const localJson = JSON.stringify(stickyNotesRef.current);
+      if (incomingJson !== localJson) {
+        setStickyNotes(doc.stickyNotes);
+        stickyNotesRef.current = doc.stickyNotes;
+      }
+    }
+  }, [doc.title, doc.content, doc.stickyNotes]);
 
   // Hydrate the always-editable WYSIWYG contentEditable canvas only when switching doc,
   // returning from Markdown Source mode, or receiving an external cloud content update.
@@ -463,7 +513,7 @@ export default function DocumentViewer({
   }, []);
 
   const commitSaveImmediate = useCallback(
-    (nextTitle, nextContent, showBadge = true) => {
+    (nextTitle, nextContent, showBadge = true, nextStickyNotes = undefined) => {
       if (autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
         autoSaveTimerRef.current = null;
@@ -471,12 +521,15 @@ export default function DocumentViewer({
       hasPendingSaveRef.current = false;
       const cleanTitle = (nextTitle ?? draftTitleRef.current).trim() || t.untitledDoc;
       const cleanContent = nextContent ?? draftContentRef.current;
+      const cleanStickies = nextStickyNotes ?? stickyNotesRef.current;
       lastSyncedMarkdownRef.current = cleanContent;
       draftContentRef.current = cleanContent;
+      stickyNotesRef.current = cleanStickies;
       onUpdateDocument({
         ...docRef.current,
         title: cleanTitle,
         content: cleanContent,
+        stickyNotes: cleanStickies,
         updatedAt: Date.now(),
       });
       if (showBadge) {
@@ -519,16 +572,303 @@ export default function DocumentViewer({
   useEffect(() => {
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      if (stickySaveTimerRef.current) clearTimeout(stickySaveTimerRef.current);
       if (hasPendingSaveRef.current && docRef.current?.docType !== 'pdf-embed') {
         onUpdateDocument({
           ...docRef.current,
           title: draftTitleRef.current.trim() || t.untitledDoc,
           content: draftContentRef.current,
+          stickyNotes: stickyNotesRef.current,
           updatedAt: Date.now(),
         });
       }
     };
   }, [onUpdateDocument, t.untitledDoc]);
+
+  // ---------- Sticky Notes Handlers (persisted inside document.stickyNotes & synced to Supabase) ----------
+  const handleAddStickyNote = useCallback(() => {
+    const scrollEl = readerScrollRef.current;
+    const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
+    const containerWidth = scrollEl ? scrollEl.clientWidth : 900;
+    const count = stickyNotesRef.current.length;
+    const defaultWidth = 264;
+    const defaultHeight = 204;
+    // Place neatly near right edge on desktop, staggered so multiple notes never fully overlap
+    const baseRightX = Math.max(16, containerWidth - defaultWidth - 28);
+    const x = Math.max(12, baseRightX - (count % 4) * 24);
+    const y = Math.max(16, Math.round(scrollTop + 28 + (count % 5) * 32));
+    const color = STICKY_NOTE_COLORS[count % STICKY_NOTE_COLORS.length].hex;
+
+    const newNote = {
+      id: `sticky_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      title: t.stickyNoteDefaultTitle,
+      content: '',
+      x,
+      y,
+      width: defaultWidth,
+      height: defaultHeight,
+      color,
+    };
+
+    const next = [...stickyNotesRef.current, newNote];
+    setStickyNotes(next);
+    stickyNotesRef.current = next;
+    setStickyNotesVisible(true);
+    commitSaveImmediate(draftTitleRef.current, getLatestMarkdownContent(), true, next);
+  }, [commitSaveImmediate, getLatestMarkdownContent, t.stickyNoteDefaultTitle]);
+
+  const handleUpdateStickyNote = useCallback(
+    (noteId, patch) => {
+      const next = stickyNotesRef.current.map((n) =>
+        n.id === noteId ? { ...n, ...patch } : n
+      );
+      setStickyNotes(next);
+      stickyNotesRef.current = next;
+
+      // Immediate save for geometry/color changes; light debounce for typing inside title/body
+      const isTypingPatch = 'title' in patch || 'content' in patch;
+      if (isTypingPatch) {
+        hasPendingSaveRef.current = true;
+        if (stickySaveTimerRef.current) clearTimeout(stickySaveTimerRef.current);
+        stickySaveTimerRef.current = setTimeout(() => {
+          commitSaveImmediate(
+            draftTitleRef.current,
+            getLatestMarkdownContent(),
+            true,
+            stickyNotesRef.current
+          );
+        }, 450);
+      } else {
+        commitSaveImmediate(draftTitleRef.current, getLatestMarkdownContent(), true, next);
+      }
+    },
+    [commitSaveImmediate, getLatestMarkdownContent]
+  );
+
+  const handleDeleteStickyNote = useCallback(
+    (noteId) => {
+      const next = stickyNotesRef.current.filter((n) => n.id !== noteId);
+      setStickyNotes(next);
+      stickyNotesRef.current = next;
+      commitSaveImmediate(draftTitleRef.current, getLatestMarkdownContent(), true, next);
+    },
+    [commitSaveImmediate, getLatestMarkdownContent]
+  );
+
+  // ---------- Block Formatting Actions (H1-H3, Lists, Checklists, Indent, Callout, Slash Menu) ----------
+  const runBlockFormatAction = useCallback(
+    (action) => {
+      const el = editorRef.current;
+      if (!el || isSourceMode) return;
+
+      let changed = false;
+      if (action === 'h1') changed = toggleHeadingBlock(el, savedRangeRef.current, 1);
+      else if (action === 'h2') changed = toggleHeadingBlock(el, savedRangeRef.current, 2);
+      else if (action === 'h3') changed = toggleHeadingBlock(el, savedRangeRef.current, 3);
+      else if (action === 'ul') changed = toggleListBlock(el, savedRangeRef.current, 'ul');
+      else if (action === 'ol') changed = toggleListBlock(el, savedRangeRef.current, 'ol');
+      else if (action === 'checklist') changed = toggleListBlock(el, savedRangeRef.current, 'checklist');
+      else if (action === 'indent') changed = indentListItem(el, savedRangeRef.current, 'indent');
+      else if (action === 'outdent') changed = indentListItem(el, savedRangeRef.current, 'outdent');
+      else if (action === 'callout')
+        changed = insertCalloutBlock(el, savedRangeRef.current, t.calloutDefaultText);
+      else if (action === 'sticky') {
+        handleAddStickyNote();
+        return;
+      }
+
+      if (changed) {
+        const nextMd = editorHtmlToMarkdown(el);
+        lastSyncedMarkdownRef.current = nextMd;
+        draftContentRef.current = nextMd;
+        commitSaveImmediate(draftTitleRef.current, nextMd, true);
+      }
+    },
+    [isSourceMode, commitSaveImmediate, handleAddStickyNote, t.calloutDefaultText]
+  );
+
+  const slashCommands = useMemo(
+    () => [
+      { id: 'h1', label: t.heading1Label, shortcut: 'H1', keywords: 'h1 heading title tieu de 1', icon: Heading1 },
+      { id: 'h2', label: t.heading2Label, shortcut: 'H2', keywords: 'h2 heading section tieu de 2', icon: Heading2 },
+      { id: 'h3', label: t.heading3Label, shortcut: 'H3', keywords: 'h3 heading sub tieu de 3', icon: Heading3 },
+      { id: 'ul', label: t.bulletListLabel, shortcut: '•', keywords: 'bullet list ul cham danh sach', icon: List },
+      { id: 'ol', label: t.numberedListLabel, shortcut: '1.', keywords: 'numbered ordered list ol so', icon: ListOrdered },
+      { id: 'checklist', label: t.checklistLabel, shortcut: '☐', keywords: 'todo check task checklist kiem tra', icon: CheckSquare },
+      { id: 'callout', label: t.calloutLabel, shortcut: '💡', keywords: 'callout summary box note cong thuc hop tom tat', icon: Lightbulb },
+      { id: 'sticky', label: t.addStickyNote, shortcut: '📌', keywords: 'sticky note card ghi chu dan', icon: StickyNote },
+    ],
+    [t]
+  );
+
+  const filteredSlashCommands = useMemo(() => {
+    if (!slashMenu) return [];
+    const q = (slashMenu.query || '').trim().toLowerCase();
+    if (!q) return slashCommands;
+    return slashCommands.filter(
+      (cmd) =>
+        cmd.label.toLowerCase().includes(q) ||
+        cmd.id.includes(q) ||
+        cmd.keywords.includes(q)
+    );
+  }, [slashMenu, slashCommands]);
+
+  const detectSlashCommandAtCaret = useCallback(() => {
+    const el = editorRef.current;
+    const sel = window.getSelection();
+    if (!el || !sel || !sel.isCollapsed || sel.rangeCount === 0) {
+      setSlashMenu(null);
+      return;
+    }
+
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.startContainer) || range.startContainer.nodeType !== 3) {
+      setSlashMenu(null);
+      return;
+    }
+
+    const textBeforeCaret = range.startContainer.nodeValue.slice(0, range.startOffset);
+    const slashMatch = textBeforeCaret.match(/(?:^|\s)\/([a-zA-Z0-9]*)$/);
+    if (!slashMatch) {
+      setSlashMenu(null);
+      return;
+    }
+
+    const rect = range.getBoundingClientRect();
+    const containerRect = readerScrollRef.current?.getBoundingClientRect();
+    if (!containerRect) return;
+
+    const top = Math.max(
+      16,
+      (rect.bottom || rect.top || containerRect.top + 80) -
+        containerRect.top +
+        (readerScrollRef.current?.scrollTop || 0) +
+        6
+    );
+    const left = Math.min(
+      Math.max(16, (rect.left || containerRect.left + 40) - containerRect.left),
+      Math.max(16, containerRect.width - 252)
+    );
+
+    setSlashMenu((prev) => ({
+      query: slashMatch[1] || '',
+      top,
+      left,
+      activeIndex: prev && prev.query === (slashMatch[1] || '') ? prev.activeIndex : 0,
+    }));
+  }, []);
+
+  const executeSlashCommand = useCallback(
+    (commandId) => {
+      const el = editorRef.current;
+      const sel = window.getSelection();
+      // Remove the `/query` trigger text before inserting the formatted block
+      if (el && sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (el.contains(range.startContainer) && range.startContainer.nodeType === 3) {
+          const textNode = range.startContainer;
+          const before = textNode.nodeValue.slice(0, range.startOffset);
+          const match = before.match(/(?:^|\s)(\/[a-zA-Z0-9]*)$/);
+          if (match) {
+            const slashStart = range.startOffset - match[1].length;
+            textNode.deleteData(slashStart, match[1].length);
+            const nextRange = document.createRange();
+            nextRange.setStart(textNode, slashStart);
+            nextRange.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(nextRange);
+            savedRangeRef.current = nextRange.cloneRange();
+          }
+        }
+      }
+
+      setSlashMenu(null);
+      runBlockFormatAction(commandId);
+    },
+    [runBlockFormatAction]
+  );
+
+  const handleWysiwygKeyDown = (e) => {
+    if (slashMenu && filteredSlashCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashMenu((prev) =>
+          prev ? { ...prev, activeIndex: (prev.activeIndex + 1) % filteredSlashCommands.length } : null
+        );
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashMenu((prev) =>
+          prev
+            ? {
+                ...prev,
+                activeIndex:
+                  (prev.activeIndex - 1 + filteredSlashCommands.length) %
+                  filteredSlashCommands.length,
+              }
+            : null
+        );
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const picked = filteredSlashCommands[slashMenu.activeIndex] || filteredSlashCommands[0];
+        if (picked) executeSlashCommand(picked.id);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSlashMenu(null);
+        return;
+      }
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const didIndent = indentListItem(
+        editorRef.current,
+        savedRangeRef.current,
+        e.shiftKey ? 'outdent' : 'indent'
+      );
+      if (didIndent) {
+        handleWysiwygInput();
+      } else if (!e.shiftKey) {
+        // Insert clean 2-space indent inside non-list prose without jumping focus out of the editor
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          const spaces = document.createTextNode('  ');
+          range.insertNode(spaces);
+          range.setStartAfter(spaces);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          handleWysiwygInput();
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      if (handleChecklistEnter(editorRef.current)) {
+        e.preventDefault();
+        handleWysiwygInput();
+      }
+    }
+  };
+
+  const handleWysiwygCheckboxChange = (e) => {
+    const target = e.target;
+    if (target?.matches?.('input.hd-checklist-box')) {
+      const li = target.closest('li.hd-checklist-item');
+      if (li) {
+        li.setAttribute('data-checked', target.checked ? 'true' : 'false');
+      }
+      handleWysiwygInput();
+    }
+  };
 
   const handleToggleSourceMode = () => {
     setFloatingSelection(null);
@@ -559,7 +899,8 @@ export default function DocumentViewer({
     lastSyncedMarkdownRef.current = nextMd;
     draftContentRef.current = nextMd;
     scheduleAutoSave(draftTitleRef.current, nextMd);
-  }, [scheduleAutoSave]);
+    detectSlashCommandAtCaret();
+  }, [scheduleAutoSave, detectSlashCommandAtCaret]);
 
   const updateFloatingSelectionPosition = useCallback(() => {
     if (isSourceMode || isEmbeddedPdf) return;
@@ -949,6 +1290,13 @@ export default function DocumentViewer({
 
   const scaledFontPx = (15 * zoom) / 100;
   const scaledPaperMaxWidthPx = Math.round(768 * Math.max(1, zoom / 100));
+  const stickyCanvasMinHeightPx = useMemo(() => {
+    if (!stickyNotesVisible || stickyNotes.length === 0) return 0;
+    return stickyNotes.reduce(
+      (maxH, n) => Math.max(maxH, (Number(n.y) || 0) + (Number(n.height) || 200) + 64),
+      0
+    );
+  }, [stickyNotes, stickyNotesVisible]);
 
   return (
     <div
@@ -958,8 +1306,8 @@ export default function DocumentViewer({
     >
       {/* Clean Horizontal Document Toolbar (stays fixed at 100% UI scale) */}
       <div className="no-print px-3 sm:px-5 py-2 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FFFFFF]/95 dark:bg-[#191919]/95 backdrop-blur flex flex-wrap items-center justify-between gap-2 shrink-0">
-        {/* Left: Back + Auto-saved pill */}
-        <div className="flex items-center gap-2">
+        {/* Left: Back + Pin Document Toggle + Auto-saved pill */}
+        <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => {
@@ -971,6 +1319,32 @@ export default function DocumentViewer({
           >
             <ArrowLeft className="w-4 h-4" />
             <span className="hidden sm:inline">{t.backToList}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (onTogglePin) {
+                onTogglePin(doc.id);
+              } else {
+                onUpdateDocument({
+                  ...docRef.current,
+                  pinned: !doc.pinned,
+                  updatedAt: Date.now(),
+                });
+              }
+            }}
+            title={doc.pinned ? t.unpinDoc : t.pinDoc}
+            aria-label={doc.pinned ? t.unpinDoc : t.pinDoc}
+            aria-pressed={Boolean(doc.pinned)}
+            className={`h-9 px-2.5 rounded-lg border text-[13px] font-medium inline-flex items-center gap-1.5 transition-colors duration-150 cursor-pointer ${
+              doc.pinned
+                ? 'border-amber-400/60 bg-amber-500/12 text-amber-700 dark:text-amber-300'
+                : 'border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] text-[#6B6A66] dark:text-[#9B9A97] hover:text-amber-600 dark:hover:text-amber-400 hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
+            }`}
+          >
+            <Pin className={`w-3.5 h-3.5 ${doc.pinned ? 'fill-current' : ''}`} />
+            <span className="hidden lg:inline">{doc.pinned ? t.pinnedBadge : t.pinDoc}</span>
           </button>
 
           {justAutoSaved && (
@@ -1244,6 +1618,110 @@ export default function DocumentViewer({
         </div>
       </div>
 
+      {/* Visual WYSIWYG Formatting Toolbar: Headings (H1-H3), Indented Lists, Checklist, Callout & Sticky Notes */}
+      {!isEmbeddedPdf && !isSourceMode && (
+        <div className="no-print px-3 sm:px-5 py-1.5 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-1">
+            {/* Headings H1, H2, H3 */}
+            <div className="inline-flex items-center gap-0.5">
+              {[
+                { id: 'h1', label: t.heading1Label, icon: Heading1 },
+                { id: 'h2', label: t.heading2Label, icon: Heading2 },
+                { id: 'h3', label: t.heading3Label, icon: Heading3 },
+              ].map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => runBlockFormatAction(id)}
+                  title={label}
+                  aria-label={label}
+                  className="h-8 w-8 rounded-lg inline-flex items-center justify-center text-[#555552] dark:text-[#C5C4C0] hover:text-[#191919] dark:hover:text-white hover:bg-[#EFEFED] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
+                >
+                  <Icon className="w-4 h-4" />
+                </button>
+              ))}
+            </div>
+
+            <span className="h-4 w-px bg-[#E8E8E5] dark:bg-[#2F2F2F] mx-1" />
+
+            {/* Bulleted List, Numbered List, Checklist & Multi-Level Indent */}
+            <div className="inline-flex items-center gap-0.5">
+              {[
+                { id: 'ul', label: t.bulletListLabel, icon: List },
+                { id: 'ol', label: t.numberedListLabel, icon: ListOrdered },
+                { id: 'checklist', label: t.checklistLabel, icon: CheckSquare },
+                { id: 'outdent', label: t.outdentLabel, icon: IndentDecrease },
+                { id: 'indent', label: t.indentLabel, icon: IndentIncrease },
+              ].map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => runBlockFormatAction(id)}
+                  title={label}
+                  aria-label={label}
+                  className="h-8 w-8 rounded-lg inline-flex items-center justify-center text-[#555552] dark:text-[#C5C4C0] hover:text-[#191919] dark:hover:text-white hover:bg-[#EFEFED] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
+                >
+                  <Icon className="w-4 h-4" />
+                </button>
+              ))}
+            </div>
+
+            <span className="h-4 w-px bg-[#E8E8E5] dark:bg-[#2F2F2F] mx-1" />
+
+            {/* Structured Callout / Summary Box */}
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => runBlockFormatAction('callout')}
+              title={t.calloutLabel}
+              aria-label={t.calloutLabel}
+              className="h-8 px-2.5 rounded-lg inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[#555552] dark:text-[#C5C4C0] hover:text-[#191919] dark:hover:text-white hover:bg-[#EFEFED] dark:hover:bg-[#2C2C2C] cursor-pointer transition-colors duration-150"
+            >
+              <Lightbulb className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
+              <span className="hidden md:inline">{t.calloutLabel}</span>
+            </button>
+          </div>
+
+          {/* Right: Add Free-Moving Sticky Note & Visibility Toggle */}
+          <div className="flex items-center gap-1.5">
+            {stickyNotes.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setStickyNotesVisible((v) => !v)}
+                title={t.toggleStickyNotes}
+                aria-label={t.toggleStickyNotes}
+                aria-pressed={stickyNotesVisible}
+                className={`h-8 px-2 rounded-lg border text-[12px] font-medium inline-flex items-center gap-1 cursor-pointer transition-colors duration-150 ${
+                  stickyNotesVisible
+                    ? 'border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                    : 'border-[#E8E8E5] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#262626] text-[#6B6A66] dark:text-[#9B9A97]'
+                }`}
+              >
+                {stickyNotesVisible ? (
+                  <Eye className="w-3.5 h-3.5" />
+                ) : (
+                  <EyeOff className="w-3.5 h-3.5" />
+                )}
+                <span className="tabular-nums">{stickyNotes.length}</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleAddStickyNote}
+              title={t.addStickyNote}
+              className="h-8 px-2.5 rounded-lg border border-amber-400/50 bg-[#FEF9C3]/85 hover:bg-[#FEF08A] dark:bg-amber-400/18 dark:hover:bg-amber-400/28 text-[#713F12] dark:text-amber-200 text-[12.5px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors duration-150"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <StickyNote className="w-3.5 h-3.5" />
+              <span>{t.addStickyNote}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Inline Formatting Bar when in Markdown Source Mode */}
       {!isEmbeddedPdf && isSourceMode && (
         <div className="no-print px-4 sm:px-6 py-2 border-b border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#202020] flex flex-wrap items-center justify-between gap-2 shrink-0">
@@ -1364,9 +1842,53 @@ export default function DocumentViewer({
         onScroll={() => {
           if (floatingSelection) setFloatingSelection(null);
           if (editingMath) setEditingMath(null);
+          if (slashMenu) setSlashMenu(null);
         }}
         className="relative flex-1 overflow-y-auto overflow-x-auto px-5 sm:px-10 lg:px-14 py-7 min-h-0"
       >
+        {/* Slash Command `/` Popover inside WYSIWYG Canvas */}
+        {!isSourceMode && slashMenu && filteredSlashCommands.length > 0 && (
+          <div
+            style={{
+              top: `${slashMenu.top}px`,
+              left: `${slashMenu.left}px`,
+            }}
+            onMouseDown={(e) => e.preventDefault()}
+            className="no-print hd-modal-in absolute z-40 w-[236px] rounded-xl bg-[#FFFFFF] dark:bg-[#262626] border border-[#E8E8E5] dark:border-[#3A3A3A] shadow-2xl p-1.5 font-sans"
+          >
+            <p className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wider text-[#8E8D8A] dark:text-[#888783]">
+              {t.slashMenuHint}
+            </p>
+            <div className="space-y-0.5 max-h-[260px] overflow-y-auto">
+              {filteredSlashCommands.map((cmd, idx) => {
+                const Icon = cmd.icon;
+                const isSelected = idx === slashMenu.activeIndex;
+                return (
+                  <button
+                    key={cmd.id}
+                    type="button"
+                    onMouseEnter={() =>
+                      setSlashMenu((prev) => (prev ? { ...prev, activeIndex: idx } : null))
+                    }
+                    onClick={() => executeSlashCommand(cmd.id)}
+                    className={`w-full px-2.5 py-1.5 rounded-lg text-left flex items-center gap-2 text-[13px] cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'bg-indigo-500/12 text-indigo-700 dark:text-indigo-300 font-medium'
+                        : 'text-[#262624] dark:text-[#ECECEA] hover:bg-[#F3F3F1] dark:hover:bg-[#323232]'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0 opacity-80" />
+                    <span className="flex-1 truncate">{cmd.label}</span>
+                    <span className="text-[11px] font-mono text-[#8E8D8A] shrink-0">
+                      {cmd.shortcut}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Floating Notion-Style Color & Highlight Popover (on text selection in WYSIWYG canvas) */}
         {!isSourceMode && floatingSelection && (
           <div
@@ -1458,6 +1980,7 @@ export default function DocumentViewer({
             fontSize: `${scaledFontPx}px`,
             fontFamily: activeFont.stack,
             maxWidth: `${scaledPaperMaxWidthPx}px`,
+            minHeight: stickyCanvasMinHeightPx > 0 ? `${stickyCanvasMinHeightPx}px` : undefined,
           }}
         >
           <header className="mb-6 pb-4 border-b border-[#E8E8E5] dark:border-[#2F2F2F]">
@@ -1599,11 +2122,25 @@ export default function DocumentViewer({
               aria-label={draftTitle || t.untitledDoc}
               data-placeholder={t.wysiwygPlaceholder}
               onInput={handleWysiwygInput}
+              onChange={handleWysiwygCheckboxChange}
+              onKeyDown={handleWysiwygKeyDown}
               onBlur={flushPendingSave}
               onPaste={handleWysiwygPaste}
               onClick={handleWysiwygClick}
               className="study-markdown hd-wysiwyg-editor min-h-[55vh] text-[#262624] dark:text-[#ECECEA]"
               style={{ fontSize: 'inherit', fontFamily: 'inherit' }}
+            />
+          )}
+
+          {/* Free-Moving Draggable & Resizable Sticky Notes (positioned on canvas; prints cleanly in B&W below paper) */}
+          {!isSourceMode && (
+            <StickyNoteLayer
+              notes={stickyNotes}
+              visible={stickyNotesVisible}
+              canvasRef={readerScrollRef}
+              onUpdateNote={handleUpdateStickyNote}
+              onDeleteNote={handleDeleteStickyNote}
+              t={t}
             />
           )}
         </article>

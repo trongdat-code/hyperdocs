@@ -167,6 +167,79 @@ function isTableSeparatorLine(line) {
   return cells.length > 0 && cells.every((c) => /^:?-{3,}:?$/.test(c));
 }
 
+function parseListLineInfo(line) {
+  const expanded = line.replace(/\t/g, '  ');
+  const checklistMatch = expanded.match(/^([ ]*)[-*+]\s+\[([ xX])\]\s*(.*)$/);
+  if (checklistMatch) {
+    return {
+      indent: checklistMatch[1].length,
+      kind: 'checklist',
+      checked: checklistMatch[2].toLowerCase() === 'x',
+      content: checklistMatch[3],
+    };
+  }
+  const ulMatch = expanded.match(/^([ ]*)[-*+]\s+(.*)$/);
+  if (ulMatch) {
+    return {
+      indent: ulMatch[1].length,
+      kind: 'ul',
+      checked: false,
+      content: ulMatch[2],
+    };
+  }
+  const olMatch = expanded.match(/^([ ]*)\d+\.\s+(.*)$/);
+  if (olMatch) {
+    return {
+      indent: olMatch[1].length,
+      kind: 'ol',
+      checked: false,
+      content: olMatch[2],
+    };
+  }
+  return null;
+}
+
+function buildNestedListHtml(items, inlineTokens) {
+  let idx = 0;
+
+  const renderLevel = (baseIndent, listKind) => {
+    const tag = listKind === 'ol' ? 'ol' : 'ul';
+    const cls = listKind === 'checklist' ? ' class="hd-checklist"' : '';
+    let html = `<${tag}${cls}>`;
+
+    while (idx < items.length) {
+      const item = items[idx];
+      if (item.indent < baseIndent) break;
+      if (item.indent === baseIndent && item.kind !== listKind) break;
+
+      idx += 1;
+
+      // Consume any deeper nested child lists belonging to this item
+      let childrenHtml = '';
+      while (idx < items.length && items[idx].indent > item.indent) {
+        childrenHtml += renderLevel(items[idx].indent, items[idx].kind);
+      }
+
+      const formatted = formatInlineMarkdown(item.content, inlineTokens);
+      if (item.kind === 'checklist') {
+        const checkedAttr = item.checked ? ' checked' : '';
+        html += `<li class="hd-checklist-item" data-checked="${item.checked ? 'true' : 'false'}"><input type="checkbox" class="hd-checklist-box" contenteditable="false"${checkedAttr} /><span class="hd-checklist-text">${formatted || '<br>'}</span>${childrenHtml}</li>`;
+      } else {
+        html += `<li>${formatted}${childrenHtml}</li>`;
+      }
+    }
+
+    html += `</${tag}>`;
+    return html;
+  };
+
+  let out = '';
+  while (idx < items.length) {
+    out += renderLevel(items[idx].indent, items[idx].kind);
+  }
+  return out;
+}
+
 /**
  * Convert stored Markdown + KaTeX + safe color/highlight annotations into
  * rich editable HTML for the always-editable WYSIWYG canvas.
@@ -257,41 +330,47 @@ export function markdownToEditorHtml(markdown) {
       continue;
     }
 
-    // Blockquote
+    // Blockquote OR Structured Callout / Summary Box (`> [!NOTE] ...`)
     if (/^\s*>\s?/.test(line)) {
       const quoteLines = [];
       while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
         quoteLines.push(lines[i].replace(/^\s*>\s?/, ''));
         i += 1;
       }
-      const inner = quoteLines
-        .map((ql) => formatInlineMarkdown(ql, inlineTokens))
-        .join('<br>');
-      htmlBlocks.push(`<blockquote><p>${inner}</p></blockquote>`);
+      const calloutHeader = quoteLines[0]?.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|SUMMARY)\]\s*(.*)$/i);
+      if (calloutHeader) {
+        const calloutType = calloutHeader[1].toLowerCase();
+        const bodyLines = [];
+        if (calloutHeader[2]?.trim()) bodyLines.push(calloutHeader[2]);
+        for (let k = 1; k < quoteLines.length; k += 1) {
+          bodyLines.push(quoteLines[k]);
+        }
+        const inner = bodyLines
+          .map((ql) => formatInlineMarkdown(ql, inlineTokens))
+          .join('<br>');
+        htmlBlocks.push(
+          `<div class="hd-callout" data-callout="${escapeAttr(calloutType)}"><span class="hd-callout-icon" contenteditable="false">💡</span><div class="hd-callout-body"><p>${inner || '<br>'}</p></div></div>`
+        );
+      } else {
+        const inner = quoteLines
+          .map((ql) => formatInlineMarkdown(ql, inlineTokens))
+          .join('<br>');
+        htmlBlocks.push(`<blockquote><p>${inner}</p></blockquote>`);
+      }
       continue;
     }
 
-    // Unordered list
-    if (/^\s*[-*+]\s+/.test(line)) {
-      const items = [];
-      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-        const itemText = lines[i].replace(/^\s*[-*+]\s+/, '');
-        items.push(`<li>${formatInlineMarkdown(itemText, inlineTokens)}</li>`);
+    // Multi-level Indented Lists & Checklists (unordered, ordered, `- [ ]`, `- [x]`)
+    const firstListItem = parseListLineInfo(line);
+    if (firstListItem) {
+      const listItems = [];
+      while (i < lines.length) {
+        const info = parseListLineInfo(lines[i]);
+        if (!info) break;
+        listItems.push(info);
         i += 1;
       }
-      htmlBlocks.push(`<ul>${items.join('')}</ul>`);
-      continue;
-    }
-
-    // Ordered list
-    if (/^\s*\d+\.\s+/.test(line)) {
-      const items = [];
-      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-        const itemText = lines[i].replace(/^\s*\d+\.\s+/, '');
-        items.push(`<li>${formatInlineMarkdown(itemText, inlineTokens)}</li>`);
-        i += 1;
-      }
-      htmlBlocks.push(`<ol>${items.join('')}</ol>`);
+      htmlBlocks.push(buildNestedListHtml(listItems, inlineTokens));
       continue;
     }
 
@@ -304,8 +383,7 @@ export function markdownToEditorHtml(markdown) {
       !/^\s*(?:---+|___+|\*\*\*+)\s*$/.test(lines[i]) &&
       !/^\s*#{1,6}\s+/.test(lines[i]) &&
       !/^\s*>\s?/.test(lines[i]) &&
-      !/^\s*[-*+]\s+/.test(lines[i]) &&
-      !/^\s*\d+\.\s+/.test(lines[i]) &&
+      !parseListLineInfo(lines[i]) &&
       !(lines[i].includes('|') && i + 1 < lines.length && isTableSeparatorLine(lines[i + 1]))
     ) {
       paraLines.push(formatInlineMarkdown(lines[i], inlineTokens));
@@ -357,6 +435,66 @@ function createMarkdownTurndown() {
         return `\n\n$$\n${latex}\n$$\n\n`;
       }
       return `$${latex}$`;
+    },
+  });
+
+  // Ignore decorative callout icon & checklist checkbox inputs during Turndown text extraction
+  td.addRule('hdChromeIgnore', {
+    filter: (node) =>
+      node.nodeType === 1 &&
+      (node.classList?.contains('hd-callout-icon') || node.classList?.contains('hd-checklist-box')),
+    replacement: () => '',
+  });
+
+  // Structured Callout / Summary Box -> GitHub/Notion `> [!NOTE]` blockquote syntax
+  td.addRule('hdCallout', {
+    filter: (node) => node.nodeType === 1 && node.classList?.contains('hd-callout'),
+    replacement: (_content, node) => {
+      const bodyEl = node.querySelector?.('.hd-callout-body') || node;
+      const innerMd = td.turndown(bodyEl.innerHTML || '').trim();
+      const lines = (innerMd || '').split('\n').map((l) => `> ${l}`.trimEnd());
+      return `\n\n> [!NOTE]\n${lines.join('\n')}\n\n`;
+    },
+  });
+
+  // Interactive Checklist items (`- [ ]` / `- [x]`) with multi-level nesting
+  td.addRule('hdChecklistItem', {
+    filter: (node) =>
+      node.nodeName === 'LI' &&
+      (node.classList?.contains('hd-checklist-item') ||
+        Boolean(node.querySelector?.(':scope > input.hd-checklist-box'))),
+    replacement: (content, node) => {
+      const checkbox = node.querySelector?.(':scope > input.hd-checklist-box');
+      const checked =
+        node.getAttribute?.('data-checked') === 'true' || Boolean(checkbox?.checked);
+      const cleaned = content
+        .replace(/^\n+/, '')
+        .replace(/\n+$/, '')
+        .replace(/\n/gm, '\n  ');
+      const marker = checked ? '- [x] ' : '- [ ] ';
+      return `${marker}${cleaned}${node.nextSibling ? '\n' : ''}`;
+    },
+  });
+
+  // Clean 2-space indented list items for standard UL/OL nesting
+  td.addRule('hdListItem', {
+    filter: (node) =>
+      node.nodeName === 'LI' &&
+      !node.classList?.contains('hd-checklist-item') &&
+      !node.querySelector?.(':scope > input.hd-checklist-box'),
+    replacement: (content, node) => {
+      const cleaned = content
+        .replace(/^\n+/, '')
+        .replace(/\n+$/, '')
+        .replace(/\n/gm, '\n  ');
+      const parent = node.parentNode;
+      let prefix = '- ';
+      if (parent && parent.nodeName === 'OL') {
+        const start = Number(parent.getAttribute?.('start') || 1);
+        const index = Array.prototype.indexOf.call(parent.children, node);
+        prefix = `${start + Math.max(0, index)}. `;
+      }
+      return `${prefix}${cleaned}${node.nextSibling ? '\n' : ''}`;
     },
   });
 
@@ -456,9 +594,13 @@ function normalizeClonedEditorDom(clone) {
     fontEl.replaceWith(span);
   });
 
-  // Convert bare `<div>` lines inserted by Chrome/Edge Enter key (excluding math blocks) into `<p>`
-  clone.querySelectorAll('div:not([data-latex])').forEach((divEl) => {
-    if (divEl.querySelector('p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, div[data-latex]')) {
+  // Convert bare `<div>` lines inserted by Chrome/Edge Enter key (excluding math & callout blocks) into `<p>`
+  clone.querySelectorAll('div:not([data-latex]):not(.hd-callout):not(.hd-callout-body)').forEach((divEl) => {
+    if (
+      divEl.querySelector(
+        'p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, pre, table, div[data-latex], div.hd-callout'
+      )
+    ) {
       return;
     }
     const p = clone.ownerDocument.createElement('p');
@@ -848,4 +990,411 @@ export function applyRichAnnotationToSelection(editorEl, savedRange, kind, hex) 
   }
 
   return { applied: true };
+}
+
+// ============================================================================
+// Block Formatting Helpers: Headings (H1-H3), Multi-Level Lists, Checklists & Callouts
+// ============================================================================
+
+function getActiveRangeInEditor(editorEl, savedRange) {
+  const selection = window.getSelection();
+  if (selection && selection.rangeCount > 0) {
+    const live = selection.getRangeAt(0);
+    if (editorEl.contains(live.commonAncestorContainer)) {
+      return live;
+    }
+  }
+  if (savedRange && editorEl.contains(savedRange.commonAncestorContainer)) {
+    return savedRange.cloneRange();
+  }
+  return null;
+}
+
+function setCaretInsideElement(el, toEnd = true) {
+  const sel = window.getSelection();
+  if (!sel || !el) return;
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(!toEnd);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function getEditableTopBlock(node, editorEl) {
+  let curr = node?.nodeType === 3 ? node.parentElement : node;
+  while (curr && curr !== editorEl) {
+    if (curr.classList?.contains('hd-callout-body')) {
+      return curr.firstElementChild || curr;
+    }
+    if (
+      curr.parentElement === editorEl ||
+      curr.parentElement?.classList?.contains('hd-callout-body')
+    ) {
+      return curr;
+    }
+    curr = curr.parentElement;
+  }
+  return null;
+}
+
+function getClosestListItem(node, editorEl) {
+  let curr = node?.nodeType === 3 ? node.parentElement : node;
+  while (curr && curr !== editorEl) {
+    if (curr.nodeName === 'LI') return curr;
+    curr = curr.parentElement;
+  }
+  return null;
+}
+
+function createChecklistLi(doc, textHtml = '<br>', checked = false) {
+  const li = doc.createElement('li');
+  li.className = 'hd-checklist-item';
+  li.setAttribute('data-checked', checked ? 'true' : 'false');
+
+  const input = doc.createElement('input');
+  input.type = 'checkbox';
+  input.className = 'hd-checklist-box';
+  input.setAttribute('contenteditable', 'false');
+  input.checked = checked;
+
+  const span = doc.createElement('span');
+  span.className = 'hd-checklist-text';
+  span.innerHTML = textHtml || '<br>';
+
+  li.appendChild(input);
+  li.appendChild(span);
+  return li;
+}
+
+/**
+ * Toggle the active block between `H1`/`H2`/`H3` and normal `<p>`.
+ */
+export function toggleHeadingBlock(editorEl, savedRange, level = 2) {
+  if (!editorEl) return false;
+  const targetTag = `H${Math.min(3, Math.max(1, level))}`;
+  const range = getActiveRangeInEditor(editorEl, savedRange);
+
+  if (!range) {
+    const heading = document.createElement(targetTag);
+    heading.innerHTML = '<br>';
+    editorEl.appendChild(heading);
+    editorEl.focus();
+    setCaretInsideElement(heading, true);
+    return true;
+  }
+
+  const block = getEditableTopBlock(range.startContainer, editorEl);
+  if (!block || block === editorEl) {
+    const heading = document.createElement(targetTag);
+    const selectedText = range.toString();
+    heading.textContent = selectedText || '';
+    if (!selectedText) heading.innerHTML = '<br>';
+    editorEl.appendChild(heading);
+    setCaretInsideElement(heading, true);
+    return true;
+  }
+
+  // If inside a list item, convert that single list item's text into a heading after the list
+  const li = getClosestListItem(range.startContainer, editorEl);
+  if (li) {
+    const heading = document.createElement(targetTag);
+    const textEl = li.querySelector(':scope > .hd-checklist-text');
+    heading.innerHTML = textEl ? textEl.innerHTML : li.innerHTML;
+    if (!heading.innerHTML.trim()) heading.innerHTML = '<br>';
+    const topList = block;
+    topList.parentNode.insertBefore(heading, topList.nextSibling);
+    li.remove();
+    if (!topList.querySelector('li')) topList.remove();
+    setCaretInsideElement(heading, true);
+    return true;
+  }
+
+  const nextTag = block.nodeName === targetTag ? 'P' : targetTag;
+  const replacement = document.createElement(nextTag);
+  while (block.firstChild) {
+    replacement.appendChild(block.firstChild);
+  }
+  if (!replacement.innerHTML.trim()) replacement.innerHTML = '<br>';
+  block.replaceWith(replacement);
+  setCaretInsideElement(replacement, true);
+  return true;
+}
+
+/**
+ * Toggle or convert the current block into a bulleted list (`ul`), numbered list (`ol`),
+ * or interactive checklist (`checklist`).
+ */
+export function toggleListBlock(editorEl, savedRange, listType = 'ul') {
+  if (!editorEl) return false;
+  const range = getActiveRangeInEditor(editorEl, savedRange);
+  const doc = editorEl.ownerDocument;
+
+  const makeListEl = (type) => {
+    const el = doc.createElement(type === 'ol' ? 'ol' : 'ul');
+    if (type === 'checklist') el.className = 'hd-checklist';
+    return el;
+  };
+
+  if (!range) {
+    const list = makeListEl(listType);
+    const li =
+      listType === 'checklist' ? createChecklistLi(doc, '<br>', false) : doc.createElement('li');
+    if (listType !== 'checklist') li.innerHTML = '<br>';
+    list.appendChild(li);
+    editorEl.appendChild(list);
+    editorEl.focus();
+    setCaretInsideElement(
+      listType === 'checklist' ? li.querySelector('.hd-checklist-text') : li,
+      true
+    );
+    return true;
+  }
+
+  const existingLi = getClosestListItem(range.startContainer, editorEl);
+  if (existingLi) {
+    const parentList = existingLi.parentElement;
+    const isChecklist =
+      existingLi.classList.contains('hd-checklist-item') ||
+      parentList?.classList.contains('hd-checklist');
+    const currentType = isChecklist ? 'checklist' : parentList?.nodeName === 'OL' ? 'ol' : 'ul';
+
+    // Extract inner text content (excluding nested child sublists)
+    const nestedLists = Array.from(existingLi.children).filter(
+      (ch) => ch.nodeName === 'UL' || ch.nodeName === 'OL'
+    );
+    const textHolder = existingLi.querySelector(':scope > .hd-checklist-text');
+    const innerHtml = textHolder
+      ? textHolder.innerHTML
+      : Array.from(existingLi.childNodes)
+          .filter((n) => n.nodeName !== 'UL' && n.nodeName !== 'OL')
+          .map((n) => (n.nodeType === 3 ? escapeHtml(n.nodeValue) : n.outerHTML))
+          .join('');
+
+    if (currentType === listType) {
+      // Toggle off back to normal paragraph
+      const p = doc.createElement('p');
+      p.innerHTML = innerHtml || '<br>';
+      parentList.parentNode.insertBefore(p, parentList.nextSibling);
+      existingLi.remove();
+      if (!parentList.querySelector('li')) parentList.remove();
+      setCaretInsideElement(p, true);
+      return true;
+    }
+
+    // Convert current list type to target listType
+    const newList = makeListEl(listType);
+    Array.from(parentList.children).forEach((childLi) => {
+      if (childLi.nodeName !== 'LI') return;
+      const childNested = Array.from(childLi.children).filter(
+        (ch) => ch.nodeName === 'UL' || ch.nodeName === 'OL'
+      );
+      const childTextEl = childLi.querySelector(':scope > .hd-checklist-text');
+      const childHtml = childTextEl
+        ? childTextEl.innerHTML
+        : Array.from(childLi.childNodes)
+            .filter((n) => n.nodeName !== 'UL' && n.nodeName !== 'OL')
+            .map((n) => (n.nodeType === 3 ? escapeHtml(n.nodeValue) : n.outerHTML))
+            .join('');
+      const nextLi =
+        listType === 'checklist'
+          ? createChecklistLi(doc, childHtml || '<br>', childLi.getAttribute('data-checked') === 'true')
+          : doc.createElement('li');
+      if (listType !== 'checklist') nextLi.innerHTML = childHtml || '<br>';
+      childNested.forEach((nl) => nextLi.appendChild(nl));
+      newList.appendChild(nextLi);
+    });
+    parentList.replaceWith(newList);
+    const targetLi = newList.lastElementChild || newList.firstElementChild;
+    setCaretInsideElement(
+      listType === 'checklist' ? targetLi?.querySelector('.hd-checklist-text') : targetLi,
+      true
+    );
+    return true;
+  }
+
+  // Convert current paragraph/heading block into a list
+  const block = getEditableTopBlock(range.startContainer, editorEl);
+  const list = makeListEl(listType);
+  const contentHtml = block && block !== editorEl ? block.innerHTML : '<br>';
+  const li =
+    listType === 'checklist'
+      ? createChecklistLi(doc, contentHtml || '<br>', false)
+      : doc.createElement('li');
+  if (listType !== 'checklist') li.innerHTML = contentHtml || '<br>';
+  list.appendChild(li);
+
+  if (block && block !== editorEl && block.parentNode) {
+    block.replaceWith(list);
+  } else {
+    editorEl.appendChild(list);
+  }
+
+  setCaretInsideElement(
+    listType === 'checklist' ? li.querySelector('.hd-checklist-text') : li,
+    true
+  );
+  return true;
+}
+
+/**
+ * Multi-level list indentation (`Tab` to indent right, `Shift+Tab` to outdent left).
+ */
+export function indentListItem(editorEl, savedRange, direction = 'indent') {
+  if (!editorEl) return false;
+  const range = getActiveRangeInEditor(editorEl, savedRange);
+  if (!range) return false;
+
+  const li = getClosestListItem(range.startContainer, editorEl);
+  if (!li) return false;
+
+  const parentList = li.parentElement;
+  if (!parentList || (parentList.nodeName !== 'UL' && parentList.nodeName !== 'OL')) return false;
+
+  const focusTarget = li.querySelector(':scope > .hd-checklist-text') || li;
+
+  if (direction === 'indent') {
+    const prevLi = li.previousElementSibling;
+    if (!prevLi || prevLi.nodeName !== 'LI') return false;
+
+    let subList = Array.from(prevLi.children).find(
+      (ch) => ch.nodeName === parentList.nodeName && ch.className === parentList.className
+    );
+    if (!subList) {
+      subList = editorEl.ownerDocument.createElement(parentList.nodeName.toLowerCase());
+      if (parentList.className) subList.className = parentList.className;
+      prevLi.appendChild(subList);
+    }
+    subList.appendChild(li);
+    setCaretInsideElement(focusTarget, true);
+    return true;
+  }
+
+  // Outdent (`Shift+Tab`): lift `li` out of nested list into grandparent list (or to `<p>` if already top-level)
+  const grandParentLi = parentList.parentElement;
+  if (grandParentLi && grandParentLi.nodeName === 'LI' && grandParentLi.parentElement) {
+    // Move any following siblings in `parentList` into a child sublist of `li` to preserve hierarchy
+    const trailingSiblings = [];
+    let next = li.nextElementSibling;
+    while (next) {
+      trailingSiblings.push(next);
+      next = next.nextElementSibling;
+    }
+    if (trailingSiblings.length > 0) {
+      const childList = editorEl.ownerDocument.createElement(parentList.nodeName.toLowerCase());
+      if (parentList.className) childList.className = parentList.className;
+      trailingSiblings.forEach((sib) => childList.appendChild(sib));
+      li.appendChild(childList);
+    }
+
+    grandParentLi.parentElement.insertBefore(li, grandParentLi.nextSibling);
+    if (!parentList.querySelector('li')) parentList.remove();
+    setCaretInsideElement(focusTarget, true);
+    return true;
+  }
+
+  // Already at top level: convert to paragraph below list
+  const p = editorEl.ownerDocument.createElement('p');
+  const textEl = li.querySelector(':scope > .hd-checklist-text');
+  p.innerHTML = textEl ? textEl.innerHTML : li.innerHTML;
+  if (!p.innerHTML.trim()) p.innerHTML = '<br>';
+  parentList.parentNode.insertBefore(p, parentList.nextSibling);
+  li.remove();
+  if (!parentList.querySelector('li')) parentList.remove();
+  setCaretInsideElement(p, true);
+  return true;
+}
+
+/**
+ * Insert a structured Callout / Summary Box at the active cursor position.
+ */
+export function insertCalloutBlock(editorEl, savedRange, defaultText = '') {
+  if (!editorEl) return false;
+  const doc = editorEl.ownerDocument;
+  const range = getActiveRangeInEditor(editorEl, savedRange);
+
+  const callout = doc.createElement('div');
+  callout.className = 'hd-callout';
+  callout.setAttribute('data-callout', 'note');
+
+  const icon = doc.createElement('span');
+  icon.className = 'hd-callout-icon';
+  icon.setAttribute('contenteditable', 'false');
+  icon.textContent = '💡';
+
+  const body = doc.createElement('div');
+  body.className = 'hd-callout-body';
+  const p = doc.createElement('p');
+
+  const block = range ? getEditableTopBlock(range.startContainer, editorEl) : null;
+  const blockText = block && block !== editorEl && !block.classList?.contains('hd-callout') ? block.textContent.trim() : '';
+
+  if (block && block !== editorEl && block.nodeName === 'P' && !blockText) {
+    p.textContent = defaultText || '';
+    if (!defaultText) p.innerHTML = '<br>';
+    body.appendChild(p);
+    callout.appendChild(icon);
+    callout.appendChild(body);
+    block.replaceWith(callout);
+  } else {
+    p.textContent = defaultText || '';
+    if (!defaultText) p.innerHTML = '<br>';
+    body.appendChild(p);
+    callout.appendChild(icon);
+    callout.appendChild(body);
+    if (block && block !== editorEl && block.parentNode) {
+      block.parentNode.insertBefore(callout, block.nextSibling);
+    } else {
+      editorEl.appendChild(callout);
+    }
+  }
+
+  editorEl.focus();
+  const sel = window.getSelection();
+  if (sel) {
+    const r = doc.createRange();
+    r.selectNodeContents(p);
+    if (!defaultText) r.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+  return true;
+}
+
+/**
+ * Handle Enter key cleanly inside interactive checklist items:
+ *  - On non-empty item: inserts a new unchecked checklist item right below.
+ *  - On empty item: exits the checklist into a normal `<p>`.
+ */
+export function handleChecklistEnter(editorEl) {
+  if (!editorEl) return false;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const range = sel.getRangeAt(0);
+  const li = getClosestListItem(range.startContainer, editorEl);
+  if (!li || !li.classList.contains('hd-checklist-item')) return false;
+
+  const doc = editorEl.ownerDocument;
+  const textEl = li.querySelector(':scope > .hd-checklist-text');
+  const currentText = (textEl ? textEl.textContent : li.textContent || '').trim();
+
+  if (!currentText) {
+    // Exit checklist on empty item
+    const parentList = li.parentElement;
+    const p = doc.createElement('p');
+    p.innerHTML = '<br>';
+    if (parentList.parentElement?.nodeName === 'LI') {
+      // Nested empty item: outdent instead of breaking out completely
+      return indentListItem(editorEl, range, 'outdent');
+    }
+    parentList.parentNode.insertBefore(p, parentList.nextSibling);
+    li.remove();
+    if (!parentList.querySelector('li')) parentList.remove();
+    setCaretInsideElement(p, true);
+    return true;
+  }
+
+  const nextLi = createChecklistLi(doc, '<br>', false);
+  li.parentElement.insertBefore(nextLi, li.nextSibling);
+  setCaretInsideElement(nextLi.querySelector('.hd-checklist-text'), true);
+  return true;
 }
