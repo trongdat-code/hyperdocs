@@ -283,12 +283,12 @@ function formatChemSlotLatex(slotNodes, fallback = '') {
 function wrapBaseIfNeeded(baseLatex, baseSlotNodes) {
   const clean = baseLatex.trim();
   if (!clean) return 'x';
-  // Wrap compound bases or bases that themselves contain scripts/structures so KaTeX never throws
+  // Wrap bases that contain nested structured formulas (e.g. `a_i`, `\frac{a}{b}`) or raw `^`/`_`
+  // so KaTeX never throws a double-script error, while keeping `10^{3}` and `(x+1)^{2}` clean.
   const hasStructuredChild =
     Array.isArray(baseSlotNodes) &&
     baseSlotNodes.some((n) => n.type !== 'text');
-  if (hasStructuredChild || /[\s^_+\-*/]/.test(clean) || (clean.length > 1 && !/^\\[a-zA-Z]+$/.test(clean))) {
-    // Avoid double-wrapping already braced single group
+  if (hasStructuredChild || /[\^_]/.test(clean)) {
     if (clean.startsWith('{') && clean.endsWith('}')) return clean;
     return `{${clean}}`;
   }
@@ -1399,69 +1399,412 @@ export function findSlotLastSeg(nodeEl, slotIndex = -1) {
   return segs && segs.length > 0 ? segs[segs.length - 1] : null;
 }
 
-/**
- * Extract the preceding term from `beforeText` for Desmos shortcuts (`/` vs `^` / `_`).
- * Returns `{ keepBefore: string, extracted: string }`.
- */
-function extractPrecedingTerm(beforeText, mode) {
-  const raw = String(beforeText || '');
-  if (!raw) return { keepBefore: '', extracted: '' };
+// ============================================================================
+// Desmos & Casio Natural Display Preceding Operand Capture (`extractPrecedingOperand`)
+// ============================================================================
 
-  const trimmedEnd = raw.replace(/\s+$/, '');
-  if (!trimmedEnd) return { keepBefore: raw, extracted: '' };
+const FRACTION_BOUNDARY_CHAR_RE = /[\s\u00A0+\-−=,;:<>≤≥≠≈±→⇌⇒⇔(\[{]/;
+const ATOM_CHAR_RE = /[a-zA-Zα-ωΑ-ΩπΔΩ]/;
+const DIGIT_CHAR_RE = /\d/;
 
-  // If ends with balanced parentheses `(...)`, extract the parenthesized group
-  if (trimmedEnd.endsWith(')')) {
-    let depth = 0;
-    for (let k = trimmedEnd.length - 1; k >= 0; k -= 1) {
-      if (trimmedEnd[k] === ')') depth += 1;
-      else if (trimmedEnd[k] === '(') {
-        depth -= 1;
-        if (depth === 0) {
-          let start = k;
-          // Include function name before `(` for fractions, e.g. `sin(x)/`
-          if (mode === 'fraction') {
-            const fnMatch = trimmedEnd.slice(0, k).match(/([a-zA-Z]+)$/);
-            if (fnMatch) start -= fnMatch[1].length;
-          }
-          const group = trimmedEnd.slice(start);
-          // For pure `(a+b)/` with no function prefix, strip outer parens cleanly just like Desmos
-          const unwrapped =
-            mode === 'fraction' && start === k && group.startsWith('(') && group.endsWith(')')
-              ? group.slice(1, -1)
-              : group;
-          return {
-            keepBefore: trimmedEnd.slice(0, start),
-            extracted: unwrapped,
-          };
-        }
+function nodesToItems(nodes) {
+  const items = [];
+  for (const node of normalizeSlotNodes(nodes)) {
+    if (node.type === 'text') {
+      const str = String(node.value || '');
+      for (let i = 0; i < str.length; i += 1) {
+        items.push({ kind: 'char', ch: str[i] });
+      }
+    } else {
+      items.push({ kind: 'node', node });
+    }
+  }
+  return items;
+}
+
+function itemsToNodes(items) {
+  const out = [];
+  let buf = '';
+  const flush = () => {
+    if (buf) {
+      out.push(createTextNode(buf));
+      buf = '';
+    }
+  };
+  for (const item of items) {
+    if (item.kind === 'char') {
+      buf += item.ch;
+    } else if (item.kind === 'node' && item.node) {
+      flush();
+      out.push(item.node);
+    }
+  }
+  flush();
+  return normalizeSlotNodes(out);
+}
+
+function isWrappedInSingleMatchingParens(items) {
+  if (items.length < 2) return false;
+  if (items[0].kind !== 'char' || items[0].ch !== '(') return false;
+  if (items[items.length - 1].kind !== 'char' || items[items.length - 1].ch !== ')') return false;
+  let depth = 0;
+  for (let i = 0; i < items.length; i += 1) {
+    if (items[i].kind === 'char') {
+      if (items[i].ch === '(') depth += 1;
+      else if (items[i].ch === ')') depth -= 1;
+      if (depth === 0 && i < items.length - 1) {
+        return false;
       }
     }
   }
+  return depth === 0;
+}
 
-  if (mode === 'fraction') {
-    // Split on lowest-precedence operators (`+`, `-`, `−`, `=`, `,`, `;`, `:`, `<`, `>`, `≤`, `≥`, `≠`, `⇒`, `⇔`, `±`, `→`, `⇌`)
-    const match = trimmedEnd.match(/^(.*[+\-−=,;:<>≤≥≠⇒⇔±→⇌]\s*)([^\s+\-−=,;:<>≤≥≠⇒⇔±→⇌].*)$/);
-    if (match) {
-      return { keepBefore: match[1], extracted: match[2].trim() };
+/**
+ * Pull an optional contiguous leading numeric coefficient immediately before `endIdx`
+ * (e.g. `3` in `3x`, `2` in `2\sqrt{}`, `3.5` in `3.5(x+1)`), bounded on its left by
+ * start-of-list, whitespace, or an operator.
+ */
+function splitLeadingNumericMultiplier(items, endIdx) {
+  let i = endIdx - 1;
+  let sawDigit = false;
+  let sawDot = false;
+  while (i >= 0 && items[i].kind === 'char') {
+    const ch = items[i].ch;
+    if (DIGIT_CHAR_RE.test(ch)) {
+      sawDigit = true;
+      i -= 1;
+    } else if (ch === '.' && !sawDot && sawDigit && i > 0 && items[i - 1].kind === 'char' && DIGIT_CHAR_RE.test(items[i - 1].ch)) {
+      sawDot = true;
+      i -= 1;
+    } else {
+      break;
     }
-    return { keepBefore: '', extracted: trimmedEnd };
+  }
+  if (!sawDigit) {
+    return { beforeIdx: endIdx, multiplierItems: [] };
+  }
+  const startIdx = i + 1;
+  // Only treat digits as a standalone coefficient if preceded by start, space, or operator (not `x2`)
+  if (startIdx > 0) {
+    const prev = items[startIdx - 1];
+    if (prev.kind === 'char' && !FRACTION_BOUNDARY_CHAR_RE.test(prev.ch)) {
+      return { beforeIdx: endIdx, multiplierItems: [] };
+    }
+  }
+  return {
+    beforeIdx: startIdx,
+    multiplierItems: items.slice(startIdx, endIdx),
+  };
+}
+
+/**
+ * Resolve slot placement for a highlighted selection (Case A).
+ */
+export function getSelectionWrapSpec(rawType) {
+  const type = normalizeNodeType(rawType);
+  switch (type) {
+    case 'fraction':
+      return { primarySlotIdx: 0, focusSlotIdx: 1 };
+    case 'power':
+    case 'subscript':
+    case 'ionPos':
+    case 'ionNeg':
+      return { primarySlotIdx: 0, focusSlotIdx: 1 };
+    case 'sqrt':
+    case 'vector':
+    case 'angle':
+    case 'molarity':
+    case 'reaction':
+      return { primarySlotIdx: 0, focusSlotIdx: 0 };
+    case 'nthroot':
+      // Wrap highlighted expression into radicand (slot 1), focus root index (slot 0)
+      return { primarySlotIdx: 1, focusSlotIdx: 0 };
+    case 'oxid':
+      return { primarySlotIdx: 1, focusSlotIdx: 0 };
+    case 'integral':
+    case 'limit':
+    case 'sum':
+      return { primarySlotIdx: 2, focusSlotIdx: 0 };
+    default:
+      return { primarySlotIdx: 0, focusSlotIdx: 0 };
+  }
+}
+
+/**
+ * Desmos & Casio Natural Display (fx-580VN X / fx-880BTG) Preceding Operand Capture.
+ *
+ * Inspects `beforeNodes` (characters and nested MathNodes immediately preceding a collapsed caret)
+ * and partitions them into:
+ *  - `remaining`: stays before the formula node in the outer container
+ *  - `multiplier`: leading numeric coefficient kept strictly outside the formula's primary slot
+ *                  (e.g., `3` in `3x^□` or `2` in `2\sqrt{□}`), useful when wrapping from prose
+ *  - `captured`: nodes placed directly inside `primarySlotIdx`
+ *  - `primarySlotIdx`: target slot for `captured`
+ *  - `focusSlotIdx`: slot to focus immediately after insertion
+ */
+export function extractPrecedingOperand(beforeNodes, rawType) {
+  const type = normalizeNodeType(rawType);
+  const items = nodesToItems(beforeNodes);
+
+  // Case B — Fraction (`Phân số` or `/` key)
+  if (type === 'fraction') {
+    if (items.length === 0) {
+      return { remaining: [], multiplier: [], captured: [], primarySlotIdx: 0, focusSlotIdx: 0 };
+    }
+    const last = items[items.length - 1];
+    if (last.kind === 'char' && FRACTION_BOUNDARY_CHAR_RE.test(last.ch)) {
+      return {
+        remaining: itemsToNodes(items),
+        multiplier: [],
+        captured: [],
+        primarySlotIdx: 0,
+        focusSlotIdx: 0,
+      };
+    }
+
+    let parenDepth = 0;
+    let cutIdx = 0;
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const it = items[i];
+      if (it.kind === 'node') {
+        continue;
+      }
+      const ch = it.ch;
+      if (ch === ')') {
+        parenDepth += 1;
+      } else if (ch === '(') {
+        if (parenDepth > 0) {
+          parenDepth -= 1;
+        } else {
+          cutIdx = i + 1;
+          break;
+        }
+      } else if (parenDepth === 0 && FRACTION_BOUNDARY_CHAR_RE.test(ch)) {
+        cutIdx = i + 1;
+        break;
+      }
+    }
+
+    let capturedItems = items.slice(cutIdx);
+    const remainingItems = items.slice(0, cutIdx);
+    if (capturedItems.length === 0) {
+      return {
+        remaining: itemsToNodes(items),
+        multiplier: [],
+        captured: [],
+        primarySlotIdx: 0,
+        focusSlotIdx: 0,
+      };
+    }
+
+    // Strip pure outer matching parentheses `(a+b)` -> `a+b` (preserving `2(a+b)` or `sin(x)`)
+    if (isWrappedInSingleMatchingParens(capturedItems)) {
+      capturedItems = capturedItems.slice(1, -1);
+    }
+
+    return {
+      remaining: itemsToNodes(remainingItems),
+      multiplier: [],
+      captured: itemsToNodes(capturedItems),
+      primarySlotIdx: 0,
+      focusSlotIdx: 1,
+    };
   }
 
-  // For `power` (`^`) and `subscript` (`_`): grab the trailing number OR single variable/Greek letter
-  const tokenMatch = trimmedEnd.match(/^(.*?)(\d+(?:\.\d+)?|[a-zA-Zα-ωΑ-ΩπΔΩ])$/);
-  if (tokenMatch) {
-    return { keepBefore: tokenMatch[1], extracted: tokenMatch[2] };
+  // Case C — Power (`^`), Subscript (`_`), and Ion charges
+  if (type === 'power' || type === 'subscript' || type === 'ionPos' || type === 'ionNeg') {
+    if (items.length === 0) {
+      return { remaining: [], multiplier: [], captured: [], primarySlotIdx: 0, focusSlotIdx: 0 };
+    }
+    const last = items[items.length - 1];
+
+    // C1: Immediately preceded by a nested MathNode (e.g. `H_2` in `5H_2` -> `5{H_2}^□`)
+    if (last.kind === 'node') {
+      const { beforeIdx, multiplierItems } = splitLeadingNumericMultiplier(items, items.length - 1);
+      return {
+        remaining: itemsToNodes(items.slice(0, beforeIdx)),
+        multiplier: itemsToNodes(multiplierItems),
+        captured: [last.node],
+        primarySlotIdx: 0,
+        focusSlotIdx: 1,
+      };
+    }
+
+    // C2: Immediately preceded by a balanced parenthesized group `(...)` (e.g. `3(x+1)` -> `3` + `(x+1)^□`)
+    if (last.ch === ')') {
+      let depth = 0;
+      let openIdx = -1;
+      for (let i = items.length - 1; i >= 0; i -= 1) {
+        if (items[i].kind === 'char') {
+          if (items[i].ch === ')') depth += 1;
+          else if (items[i].ch === '(') {
+            depth -= 1;
+            if (depth === 0) {
+              openIdx = i;
+              break;
+            }
+          }
+        }
+      }
+      if (openIdx >= 0) {
+        const { beforeIdx, multiplierItems } = splitLeadingNumericMultiplier(items, openIdx);
+        return {
+          remaining: itemsToNodes(items.slice(0, beforeIdx)),
+          multiplier: itemsToNodes(multiplierItems),
+          captured: itemsToNodes(items.slice(openIdx)),
+          primarySlotIdx: 0,
+          focusSlotIdx: 1,
+        };
+      }
+      return {
+        remaining: itemsToNodes(items),
+        multiplier: [],
+        captured: [],
+        primarySlotIdx: 0,
+        focusSlotIdx: 0,
+      };
+    }
+
+    // C3: Trailing variable / Greek / chemical atom (e.g. `3x` -> keep `3` outside, capture `x` into base)
+    if (ATOM_CHAR_RE.test(last.ch)) {
+      const atomIdx = items.length - 1;
+      const { beforeIdx, multiplierItems } = splitLeadingNumericMultiplier(items, atomIdx);
+      return {
+        remaining: itemsToNodes(items.slice(0, beforeIdx)),
+        multiplier: itemsToNodes(multiplierItems),
+        captured: [createTextNode(last.ch)],
+        primarySlotIdx: 0,
+        focusSlotIdx: 1,
+      };
+    }
+
+    // C4: Trailing standalone number (e.g. `10` -> capture `10` into base -> `10^□`)
+    if (DIGIT_CHAR_RE.test(last.ch)) {
+      let numStart = items.length - 1;
+      let sawDot = false;
+      while (numStart > 0 && items[numStart - 1].kind === 'char') {
+        const prevCh = items[numStart - 1].ch;
+        if (DIGIT_CHAR_RE.test(prevCh)) {
+          numStart -= 1;
+        } else if (
+          prevCh === '.' &&
+          !sawDot &&
+          numStart - 2 >= 0 &&
+          items[numStart - 2].kind === 'char' &&
+          DIGIT_CHAR_RE.test(items[numStart - 2].ch)
+        ) {
+          sawDot = true;
+          numStart -= 1;
+        } else {
+          break;
+        }
+      }
+      return {
+        remaining: itemsToNodes(items.slice(0, numStart)),
+        multiplier: [],
+        captured: itemsToNodes(items.slice(numStart)),
+        primarySlotIdx: 0,
+        focusSlotIdx: 1,
+      };
+    }
+
+    // C5: Preceded by space or operator -> empty base focused
+    return {
+      remaining: itemsToNodes(items),
+      multiplier: [],
+      captured: [],
+      primarySlotIdx: 0,
+      focusSlotIdx: 0,
+    };
   }
 
-  return { keepBefore: raw, extracted: '' };
+  // Case D — Square Root (`√`) & Nth Root (`ⁿ√`): keep preceding coefficient outside!
+  if (type === 'sqrt' || type === 'nthroot') {
+    const { beforeIdx, multiplierItems } = splitLeadingNumericMultiplier(items, items.length);
+    return {
+      remaining: itemsToNodes(items.slice(0, beforeIdx)),
+      multiplier: itemsToNodes(multiplierItems),
+      captured: [],
+      primarySlotIdx: type === 'nthroot' ? 1 : 0,
+      focusSlotIdx: 0,
+    };
+  }
+
+  // Other operators: no implicit capture when collapsed
+  return {
+    remaining: itemsToNodes(items),
+    multiplier: [],
+    captured: [],
+    primarySlotIdx: 0,
+    focusSlotIdx: 0,
+  };
+}
+
+/**
+ * Helper: rebuild a `.hd-math-slot`'s prefix up to `segInput` from normalized `MathNode[]`,
+ * then append `[newNodeEl, afterSeg]` and normalize seamlessly without outer DOM flicker.
+ */
+function replaceSlotPrefixAndInsertNode(slotEl, segInput, prefixNodes, newNodeEl, afterText) {
+  const doc = slotEl.ownerDocument;
+  const ph = slotEl.getAttribute('data-slot-ph') || '';
+  const size = slotEl.getAttribute('data-slot-size') || 'md';
+  const isRootSlot = slotEl.classList.contains('hd-math-root-slot');
+
+  // Remove all children strictly before `segInput` plus `segInput` itself
+  const insertAnchor = segInput.nextSibling;
+  let cur = slotEl.firstChild;
+  while (cur && cur !== insertAnchor) {
+    const next = cur.nextSibling;
+    cur.remove();
+    cur = next;
+  }
+
+  // Re-insert `prefixNodes` (remaining + multiplier) before `insertAnchor`
+  for (const n of normalizeSlotNodes(prefixNodes)) {
+    if (n.type === 'text') {
+      slotEl.insertBefore(
+        createSegInputEl(doc, n.value, { ph, size, hasSiblings: true, isRootSeg: isRootSlot }),
+        insertAnchor
+      );
+    } else {
+      const dom = buildFormulaNodeEl(doc, n);
+      if (dom) slotEl.insertBefore(dom, insertAnchor);
+    }
+  }
+
+  // Insert the new child formula node & trailing segment carrying `afterText`
+  slotEl.insertBefore(newNodeEl, insertAnchor);
+  const afterSeg = createSegInputEl(doc, afterText, {
+    ph,
+    size,
+    hasSiblings: true,
+    isRootSeg: isRootSlot,
+  });
+  slotEl.insertBefore(afterSeg, insertAnchor);
+
+  normalizeSlotDom(slotEl);
+}
+
+/**
+ * Build a `MathNode` with `capturedNodes` placed into `primarySlotIdx`.
+ */
+export function buildNodeWithCapturedSlot(rawType, capturedNodes = [], primarySlotIdx = 0) {
+  const type = normalizeNodeType(rawType);
+  const spec = NODE_SPECS[type];
+  if (!spec) return null;
+  const slots = Array.from({ length: spec.slots.length }, (_, idx) =>
+    idx === primarySlotIdx ? normalizeSlotNodes(capturedNodes) : []
+  );
+  return createMathNode(type, slots);
 }
 
 /**
  * Insert a new child formula node nested inside the currently active `<input class="hd-seg">`.
- * Supports optional wrapping of selected text OR Desmos-style preceding-term wrapping (`/` / `^` / `_`).
+ * Always applies Desmos & Casio Natural Display Preceding Operand Capture (whether triggered
+ * by toolbar click OR keyboard shortcuts `/`, `^`, `_`), as well as Case A selection wrapping.
  */
-export function insertNestedNodeAtSeg(segInput, rawType, { wrapMode = null } = {}) {
+export function insertNestedNodeAtSeg(segInput, rawType) {
   const slotEl = segInput?.closest?.('.hd-math-slot');
   const rootEqEl = segInput?.closest?.('.hd-eq');
   if (!slotEl || !rootEqEl) return false;
@@ -1473,63 +1816,52 @@ export function insertNestedNodeAtSeg(segInput, rawType, { wrapMode = null } = {
   const val = segInput.value || '';
   const start = segInput.selectionStart ?? val.length;
   const end = segInput.selectionEnd ?? start;
-  const before = val.slice(0, start);
+  const beforeText = val.slice(0, start);
   const selected = val.slice(start, end);
-  const after = val.slice(end);
+  const afterText = val.slice(end);
 
-  let initialSlot0 = [];
-  let focusSlotIdx = 0;
-
-  if (selected) {
-    // Wrap highlighted text into slot 0 (numerator / radicand / base)
-    initialSlot0 = [createTextNode(selected)];
-    segInput.value = before;
-    focusSlotIdx = NODE_SPECS[type].slots.length > 1 ? 1 : 0;
-  } else if (wrapMode) {
-    const { keepBefore, extracted } = extractPrecedingTerm(before, wrapMode);
-    if (extracted) {
-      initialSlot0 = [createTextNode(extracted)];
-      segInput.value = keepBefore;
-      focusSlotIdx = 1;
-    } else if (!before.trim() && segInput.previousElementSibling?.classList?.contains('hd-node')) {
-      // Pull the immediately preceding sibling formula node into slot 0!
-      // e.g. `\sqrt{x^2+1}` + `/` -> `\frac{\sqrt{x^2+1}}{\square}`
-      const prevNodeEl = segInput.previousElementSibling;
-      const prevTree = readFormulaNodeFromDom(prevNodeEl);
-      if (prevTree) {
-        initialSlot0 = [prevTree];
-        prevNodeEl.remove();
-        // Keep any text from the segment before prevNodeEl intact
-        segInput.value = '';
-        focusSlotIdx = 1;
-      }
-    } else {
-      segInput.value = before;
-      focusSlotIdx = 0;
+  // Collect all nodes in `slotEl` strictly before `segInput` + `beforeText`
+  const beforeNodes = [];
+  for (const child of Array.from(slotEl.children)) {
+    if (child === segInput) break;
+    if (child.matches('input.hd-seg')) {
+      if (child.value) beforeNodes.push(createTextNode(child.value));
+    } else if (child.classList.contains('hd-node')) {
+      const parsed = readFormulaNodeFromDom(child);
+      if (parsed) beforeNodes.push(parsed);
     }
-  } else {
-    segInput.value = before;
-    focusSlotIdx = 0;
+  }
+  if (beforeText) {
+    beforeNodes.push(createTextNode(beforeText));
   }
 
-  const newNode = createMathNode(type, initialSlot0.length > 0 ? [initialSlot0] : []);
+  let prefixNodes;
+  let capturedNodes;
+  let primarySlotIdx;
+  let focusSlotIdx;
+
+  if (selected) {
+    // Case A: Highlighted selection -> wrap directly into primary slot
+    const spec = getSelectionWrapSpec(type);
+    prefixNodes = beforeNodes;
+    capturedNodes = [createTextNode(selected)];
+    primarySlotIdx = spec.primarySlotIdx;
+    focusSlotIdx = spec.focusSlotIdx;
+  } else {
+    // Cases B, C, D: Preceding Operand Capture (Desmos & Casio precedence)
+    const plan = extractPrecedingOperand(beforeNodes, type);
+    prefixNodes = [...plan.remaining, ...plan.multiplier];
+    capturedNodes = plan.captured;
+    primarySlotIdx = plan.primarySlotIdx;
+    focusSlotIdx = plan.focusSlotIdx;
+  }
+
+  const newNode = buildNodeWithCapturedSlot(type, capturedNodes, primarySlotIdx);
   if (!newNode) return false;
   const newNodeEl = buildFormulaNodeEl(doc, newNode);
   if (!newNodeEl) return false;
 
-  const afterSeg = createSegInputEl(doc, after, {
-    ph: slotEl.getAttribute('data-slot-ph') || '',
-    size: slotEl.getAttribute('data-slot-size') || 'md',
-    hasSiblings: true,
-    isRootSeg: slotEl.classList.contains('hd-math-root-slot'),
-  });
-
-  // Insert `[newNodeEl, afterSeg]` right after `segInput`
-  const refNext = segInput.nextSibling;
-  slotEl.insertBefore(newNodeEl, refNext);
-  slotEl.insertBefore(afterSeg, newNodeEl.nextSibling);
-
-  normalizeSlotDom(slotEl);
+  replaceSlotPrefixAndInsertNode(slotEl, segInput, prefixNodes, newNodeEl, afterText);
   syncMathWidgetState(rootEqEl, true);
 
   const targetSeg = findSlotFirstSeg(newNodeEl, focusSlotIdx);
@@ -1540,11 +1872,11 @@ export function insertNestedNodeAtSeg(segInput, rawType, { wrapMode = null } = {
 }
 
 /**
- * Unwrap a child `.hd-node` in-place, splicing the DOM contents of `keepSlotIndex`
- * (or deleting the node cleanly if `keepSlotIndex === null`) into its parent `.hd-math-slot`,
- * then placing the caret cleanly without flickering.
+ * Smart Unwrap / Delete of a child `.hd-node` in-place:
+ * Splices `leadingNodes` (e.g., numerator/base) followed by `trailingNodes` (e.g., denominator/exponent)
+ * into `parentSlot` without deleting user content, placing the caret cleanly right between them!
  */
-function unwrapOrDeleteChildNode(nodeEl, keepSlotIndex = null, caretAt = 'end', editorEl = null) {
+function unwrapNodeWithGroups(nodeEl, leadingNodes = [], trailingNodes = [], editorEl = null) {
   const parentSlot = nodeEl?.parentElement?.closest?.('.hd-math-slot');
   const rootEqEl = nodeEl?.closest?.('.hd-eq');
   if (!parentSlot || !rootEqEl) return false;
@@ -1558,18 +1890,10 @@ function unwrapOrDeleteChildNode(nodeEl, keepSlotIndex = null, caretAt = 'end', 
     : null;
 
   const prevLen = prevSeg ? prevSeg.value.length : 0;
+  const lead = normalizeSlotNodes(leadingNodes);
+  const trail = normalizeSlotNodes(trailingNodes);
 
-  let extractedNodes = [];
-  if (keepSlotIndex !== null) {
-    const slots = findDirectSlotsOfNode(nodeEl);
-    const keepSlotEl = slots[keepSlotIndex];
-    if (keepSlotEl) {
-      extractedNodes = readSlotFromDom(keepSlotEl);
-    }
-  }
-
-  if (extractedNodes.length === 0) {
-    // Clean deletion: remove nodeEl and merge prevSeg + nextSeg
+  if (lead.length === 0 && trail.length === 0) {
     nodeEl.remove();
     normalizeSlotDom(parentSlot);
 
@@ -1609,71 +1933,86 @@ function unwrapOrDeleteChildNode(nodeEl, keepSlotIndex = null, caretAt = 'end', 
     return true;
   }
 
-  // Splice extractedNodes into parentSlot where nodeEl was
-  const insertedElements = [];
-  for (const n of extractedNodes) {
-    if (n.type === 'text') {
-      const s = createSegInputEl(doc, n.value, {
-        ph: parentSlot.getAttribute('data-slot-ph') || '',
-        size: parentSlot.getAttribute('data-slot-size') || 'md',
-        hasSiblings: true,
-        isRootSeg: parentSlot.classList.contains('hd-math-root-slot'),
-      });
-      parentSlot.insertBefore(s, nodeEl);
-      insertedElements.push(s);
-    } else {
-      const childDom = buildFormulaNodeEl(doc, n);
-      if (childDom) {
-        parentSlot.insertBefore(childDom, nodeEl);
-        insertedElements.push(childDom);
+  const ph = parentSlot.getAttribute('data-slot-ph') || '';
+  const size = parentSlot.getAttribute('data-slot-size') || 'md';
+  const isRootSlot = parentSlot.classList.contains('hd-math-root-slot');
+
+  const spliceGroup = (nodes) => {
+    const inserted = [];
+    for (const n of nodes) {
+      if (n.type === 'text') {
+        const s = createSegInputEl(doc, n.value, { ph, size, hasSiblings: true, isRootSeg: isRootSlot });
+        parentSlot.insertBefore(s, nodeEl);
+        inserted.push(s);
+      } else {
+        const childDom = buildFormulaNodeEl(doc, n);
+        if (childDom) {
+          parentSlot.insertBefore(childDom, nodeEl);
+          inserted.push(childDom);
+        }
       }
     }
-  }
+    return inserted;
+  };
 
-  // Calculate caret offset if first extracted element merges into prevSeg
-  const firstExtractedTextLen =
-    extractedNodes[0]?.type === 'text' ? extractedNodes[0].value.length : 0;
+  const leadEls = spliceGroup(lead);
+  // Insert an explicit zero-width marker boundary seg between lead and trail so we know the exact caret offset after merging!
+  const boundaryMarker = createSegInputEl(doc, '', { ph, size, hasSiblings: true, isRootSeg: isRootSlot });
+  parentSlot.insertBefore(boundaryMarker, nodeEl);
+  spliceGroup(trail);
+
+  // Measure the exact caret offset inside the seg that will survive `normalizeSlotDom`'s adjacent-seg merge
+  let caretAnchorSeg = boundaryMarker;
+  let caretOffset = 0;
+  let walkBack = boundaryMarker.previousElementSibling;
+  while (walkBack && walkBack.matches('input.hd-seg')) {
+    caretAnchorSeg = walkBack;
+    caretOffset += walkBack.value.length;
+    walkBack = walkBack.previousElementSibling;
+  }
 
   nodeEl.remove();
   normalizeSlotDom(parentSlot);
   syncMathWidgetState(rootEqEl, true);
 
-  if (caretAt === 'start') {
-    if (prevSeg && prevSeg.isConnected) {
-      focusSegInput(prevSeg, prevLen);
-    } else {
-      const first = parentSlot.querySelector('input.hd-seg');
-      if (first) focusSegInput(first, 0);
+  if (caretAnchorSeg && caretAnchorSeg.isConnected) {
+    focusSegInput(caretAnchorSeg, caretOffset);
+  } else if (leadEls.length > 0) {
+    const lastLead = leadEls[leadEls.length - 1];
+    if (lastLead && lastLead.isConnected && lastLead.nextElementSibling?.matches?.('input.hd-seg')) {
+      focusSegInput(lastLead.nextElementSibling, 0);
     }
+  } else if (prevSeg && prevSeg.isConnected) {
+    focusSegInput(prevSeg, prevLen);
   } else {
-    // Place caret right at the end of the unwrapped content
-    const lastInserted = insertedElements[insertedElements.length - 1];
-    if (lastInserted && lastInserted.isConnected) {
-      if (lastInserted.matches('input.hd-seg')) {
-        focusSegInput(lastInserted, lastInserted.value.length);
-      } else {
-        const trailing = lastInserted.nextElementSibling;
-        if (trailing?.matches?.('input.hd-seg')) {
-          focusSegInput(trailing, 0);
-        }
-      }
-    } else if (prevSeg && prevSeg.isConnected) {
-      focusSegInput(prevSeg, prevLen + firstExtractedTextLen);
-    }
+    const first = parentSlot.querySelector('input.hd-seg');
+    if (first) focusSegInput(first, 0);
   }
-
   return true;
 }
 
+function unwrapOrDeleteChildNode(nodeEl, keepSlotIndex = null, caretAt = 'end', editorEl = null) {
+  if (keepSlotIndex === null) {
+    return unwrapNodeWithGroups(nodeEl, [], [], editorEl);
+  }
+  const slots = findDirectSlotsOfNode(nodeEl);
+  const keepSlotEl = slots[keepSlotIndex];
+  const extracted = keepSlotEl ? readSlotFromDom(keepSlotEl) : [];
+  if (caretAt === 'start') {
+    return unwrapNodeWithGroups(nodeEl, [], extracted, editorEl);
+  }
+  return unwrapNodeWithGroups(nodeEl, extracted, [], editorEl);
+}
+
 /**
- * Handle all Desmos keyboard interactions inside any recursive `.hd-eq` widget:
- *  - `/` -> wrap preceding term into fraction numerator, focus denominator
- *  - `^` -> create superscript exponent slot (wrapping preceding base)
- *  - `_` -> create subscript slot (wrapping preceding base)
- *  - `ArrowRight` / `ArrowLeft` -> smooth DFS traversal into & out of nested child slots
- *  - `Tab` / `Shift+Tab` -> jump across distinct slots in DFS order
+ * Handle all Desmos & Casio Natural Display keyboard interactions inside recursive `.hd-eq` widgets:
+ *  - `/` -> capture preceding operand into fraction numerator, focus denominator
+ *  - `^` -> capture preceding atom into base (keeping numeric coefficient outside), focus exponent
+ *  - `_` -> capture preceding atom into base (keeping numeric coefficient outside), focus subscript
+ *  - `ArrowRight` / `ArrowLeft` -> smooth DFS traversal across nested formula boundaries
+ *  - `Tab` / `Shift+Tab` -> jump cleanly through slots (`index -> radicand -> outside`, `num -> den -> outside`, `base -> exp -> outside`)
  *  - `Enter` / `Escape` -> advance slot or exit formula cleanly
- *  - `Backspace` -> step into preceding child formula or cleanly unwrap/delete empty nested block
+ *  - `Backspace` -> Smart Unwrap at index 0 of denominator, exponent, subscript, or radicand without deleting preceding content
  *
  * Returns `{ handled: boolean, mutated: boolean }`.
  */
@@ -1699,17 +2038,17 @@ export function handleRecursiveMathKeyDown(editorEl, e, exitInlineEqFn) {
   // 1. Desmos inline shortcuts: `/`, `^`, `_`
   if (e.key === '/') {
     e.preventDefault();
-    const ok = insertNestedNodeAtSeg(target, 'fraction', { wrapMode: 'fraction' });
+    const ok = insertNestedNodeAtSeg(target, 'fraction');
     return { handled: true, mutated: ok };
   }
   if (e.key === '^') {
     e.preventDefault();
-    const ok = insertNestedNodeAtSeg(target, 'power', { wrapMode: 'script' });
+    const ok = insertNestedNodeAtSeg(target, 'power');
     return { handled: true, mutated: ok };
   }
   if (e.key === '_') {
     e.preventDefault();
-    const ok = insertNestedNodeAtSeg(target, 'subscript', { wrapMode: 'script' });
+    const ok = insertNestedNodeAtSeg(target, 'subscript');
     return { handled: true, mutated: ok };
   }
 
@@ -1723,7 +2062,7 @@ export function handleRecursiveMathKeyDown(editorEl, e, exitInlineEqFn) {
     return { handled: true, mutated: false };
   }
 
-  // 3. Tab / Shift+Tab -> jump to next/previous distinct slot (skipping intermediate boundary segs of the same slot)
+  // 3. Tab / Shift+Tab / Enter -> jump cleanly through slots (skipping empty wrapper boundary segs)
   if (e.key === 'Tab' || e.key === 'Enter') {
     e.preventDefault();
     const currentSlot = target.closest('.hd-math-slot');
@@ -1731,13 +2070,32 @@ export function handleRecursiveMathKeyDown(editorEl, e, exitInlineEqFn) {
       (sl) => !sl.classList.contains('hd-math-root-slot')
     );
 
+    const pickTargetSegInSlot = (slotEl, toEnd = false) => {
+      const directSegs = Array.from(slotEl.children).filter((c) => c.matches('input.hd-seg'));
+      if (directSegs.length === 0) return slotEl.querySelector('input.hd-seg');
+      return toEnd ? directSegs[directSegs.length - 1] : directSegs[0];
+    };
+
+    const isSlotPureNestedWrapper = (slotEl) => {
+      const directNodes = Array.from(slotEl.children).filter((c) => c.classList.contains('hd-node'));
+      const directSegs = Array.from(slotEl.children).filter((c) => c.matches('input.hd-seg'));
+      return directNodes.length > 0 && directSegs.every((s) => !s.value);
+    };
+
     if (e.key === 'Tab' && e.shiftKey) {
-      const slotPos = allSlots.indexOf(currentSlot);
-      if (slotPos > 0) {
-        const prevSlotSegs = allSlots[slotPos - 1].querySelectorAll('input.hd-seg');
-        const lastSeg = prevSlotSegs[prevSlotSegs.length - 1];
-        if (lastSeg) {
-          focusSegInput(lastSeg, 'end');
+      // Find the nearest preceding slot in document order
+      const prevSlots = allSlots.filter(
+        (sl) =>
+          sl !== currentSlot &&
+          !sl.contains(target) &&
+          Boolean(target.compareDocumentPosition(sl) & Node.DOCUMENT_POSITION_PRECEDING)
+      );
+      for (let i = prevSlots.length - 1; i >= 0; i -= 1) {
+        const candidate = prevSlots[i];
+        if (isSlotPureNestedWrapper(candidate)) continue;
+        const seg = pickTargetSegInSlot(candidate, true);
+        if (seg) {
+          focusSegInput(seg, 'end');
           return { handled: true, mutated: false };
         }
       }
@@ -1745,13 +2103,19 @@ export function handleRecursiveMathKeyDown(editorEl, e, exitInlineEqFn) {
       return { handled: true, mutated: false };
     }
 
-    const slotPos = allSlots.indexOf(currentSlot);
-    if (slotPos >= 0 && slotPos < allSlots.length - 1) {
-      // Skip descendant slots only if moving forward from a slot with children; otherwise enter next slot in DFS order
-      const nextSlot = allSlots[slotPos + 1];
-      const firstSeg = nextSlot.querySelector('input.hd-seg');
-      if (firstSeg) {
-        focusSegInput(firstSeg, 0);
+    // Forward Tab / Enter: find the next slot strictly following `target` (and not containing `target`)
+    const nextSlots = allSlots.filter(
+      (sl) =>
+        sl !== currentSlot &&
+        !sl.contains(target) &&
+        Boolean(target.compareDocumentPosition(sl) & Node.DOCUMENT_POSITION_FOLLOWING)
+    );
+    for (let i = 0; i < nextSlots.length; i += 1) {
+      const candidate = nextSlots[i];
+      if (isSlotPureNestedWrapper(candidate)) continue;
+      const seg = pickTargetSegInSlot(candidate, false);
+      if (seg) {
+        focusSegInput(seg, 0);
         return { handled: true, mutated: false };
       }
     }
@@ -1791,7 +2155,7 @@ export function handleRecursiveMathKeyDown(editorEl, e, exitInlineEqFn) {
     return { handled: false, mutated: false };
   }
 
-  // 6. Backspace at caret offset 0 -> Desmos-style step-in, unwrap, or clean delete
+  // 6. Backspace at caret offset 0 -> Casio / Desmos Smart Unwrap & step-in
   if (e.key === 'Backspace') {
     const start = target.selectionStart ?? 0;
     const end = target.selectionEnd ?? 0;
@@ -1818,13 +2182,14 @@ export function handleRecursiveMathKeyDown(editorEl, e, exitInlineEqFn) {
       }
     }
 
-    // Case B: At start of the first segment of a slot inside a nested `.hd-node`
+    // Case B: At index 0 of the first segment of a slot inside a nested `.hd-node`
     const ownerNode = currentSlot?.closest('.hd-node');
     if (ownerNode && currentSlot && !currentSlot.classList.contains('hd-math-root-slot')) {
       e.preventDefault();
       const nodeType = normalizeNodeType(ownerNode.getAttribute('data-node-type'));
       const slotIndex = Number(currentSlot.getAttribute('data-slot-index') || 0);
       const ownerTree = readFormulaNodeFromDom(ownerNode);
+      const directSlots = findDirectSlotsOfNode(ownerNode);
       const slotContentEmpty = isSlotEmpty(readSlotFromDom(currentSlot));
 
       // If the entire nested formula is empty -> delete it cleanly
@@ -1833,51 +2198,23 @@ export function handleRecursiveMathKeyDown(editorEl, e, exitInlineEqFn) {
         return { handled: true, mutated: ok };
       }
 
-      // If current slot is empty:
-      if (slotContentEmpty) {
-        // Fraction with empty denominator -> unwrap numerator back into parent slot!
-        if (nodeType === 'fraction' && slotIndex === 1) {
-          const ok = unwrapOrDeleteChildNode(ownerNode, 0, 'end', editorEl);
-          return { handled: true, mutated: ok };
-        }
-        // Power / Subscript / Ion with empty exponent/subscript -> unwrap base back into parent slot!
-        if (
-          (nodeType === 'power' ||
-            nodeType === 'subscript' ||
-            nodeType === 'ionPos' ||
-            nodeType === 'ionNeg') &&
-          slotIndex === 1
-        ) {
-          const ok = unwrapOrDeleteChildNode(ownerNode, 0, 'end', editorEl);
-          return { handled: true, mutated: ok };
-        }
-        // Nthroot with empty index -> unwrap radicand cleanly (or convert to sqrt)
-        if (nodeType === 'nthroot' && slotIndex === 0) {
-          const ok = unwrapOrDeleteChildNode(ownerNode, 1, 'start', editorEl);
-          return { handled: true, mutated: ok };
-        }
-        // Nthroot with empty radicand -> delete block
-        if (nodeType === 'nthroot' && slotIndex === 1) {
-          const ok = unwrapOrDeleteChildNode(ownerNode, null, 'end', editorEl);
-          return { handled: true, mutated: ok };
-        }
-        // Single-slot wrapper empty -> delete cleanly
-        if (NODE_SPECS[nodeType]?.slots.length === 1) {
-          const ok = unwrapOrDeleteChildNode(ownerNode, null, 'end', editorEl);
-          return { handled: true, mutated: ok };
-        }
-        // Multi-slot operator (integral, limit, sum, system, oxid): jump back to previous slot
-        if (slotIndex > 0) {
-          const prevSlotSeg = findSlotLastSeg(ownerNode, slotIndex - 1);
-          if (prevSlotSeg) {
-            focusSegInput(prevSlotSeg, 'end');
-            return { handled: true, mutated: false };
-          }
-        }
+      // Smart Unwrap on Fraction denominator, Power exponent, Subscript, Ion charge (slot 1):
+      // Restores preceding numerator/base inline WITHOUT deleting user content (even if slot 1 has text!)
+      if (
+        slotIndex === 1 &&
+        (nodeType === 'fraction' ||
+          nodeType === 'power' ||
+          nodeType === 'subscript' ||
+          nodeType === 'ionPos' ||
+          nodeType === 'ionNeg')
+      ) {
+        const leadNodes = directSlots[0] ? readSlotFromDom(directSlots[0]) : [];
+        const trailNodes = directSlots[1] ? readSlotFromDom(directSlots[1]) : [];
+        const ok = unwrapNodeWithGroups(ownerNode, leadNodes, trailNodes, editorEl);
+        return { handled: true, mutated: ok };
       }
 
-      // Non-empty slot at offset 0:
-      // Unwrap single-slot wrappers like `\sqrt{|x+1}`, `\vec{|a}`, `[|M]`
+      // Smart Unwrap on Square Root, Vector, Angle, Molarity (slot 0): restores radicand/content inline
       if (
         slotIndex === 0 &&
         (nodeType === 'sqrt' ||
@@ -1885,8 +2222,45 @@ export function handleRecursiveMathKeyDown(editorEl, e, exitInlineEqFn) {
           nodeType === 'angle' ||
           nodeType === 'molarity')
       ) {
-        const ok = unwrapOrDeleteChildNode(ownerNode, 0, 'start', editorEl);
+        const radNodes = directSlots[0] ? readSlotFromDom(directSlots[0]) : [];
+        const ok = unwrapNodeWithGroups(ownerNode, [], radNodes, editorEl);
         return { handled: true, mutated: ok };
+      }
+
+      // Smart Unwrap on Nth Root (`nthroot`):
+      if (nodeType === 'nthroot') {
+        const idxNodes = directSlots[0] ? readSlotFromDom(directSlots[0]) : [];
+        const radNodes = directSlots[1] ? readSlotFromDom(directSlots[1]) : [];
+        if (slotIndex === 0 && isSlotEmpty(idxNodes)) {
+          // Empty index -> unwrap radicand cleanly inline
+          const ok = unwrapNodeWithGroups(ownerNode, [], radNodes, editorEl);
+          return { handled: true, mutated: ok };
+        }
+        if (slotIndex === 1) {
+          if (isSlotEmpty(radNodes)) {
+            // Empty radicand -> unwrap index (or delete if both empty) without losing content
+            const ok = unwrapNodeWithGroups(ownerNode, idxNodes, [], editorEl);
+            return { handled: true, mutated: ok };
+          }
+          // Non-empty radicand -> unwrap keeping index & radicand intact
+          const ok = unwrapNodeWithGroups(ownerNode, idxNodes, radNodes, editorEl);
+          return { handled: true, mutated: ok };
+        }
+      }
+
+      // Single-slot wrapper empty (e.g. reaction arrow) -> delete cleanly
+      if (slotContentEmpty && NODE_SPECS[nodeType]?.slots.length === 1) {
+        const ok = unwrapOrDeleteChildNode(ownerNode, null, 'end', editorEl);
+        return { handled: true, mutated: ok };
+      }
+
+      // Multi-slot operators (integral, limit, sum, system, oxid): jump back cleanly without deleting data
+      if (slotIndex > 0) {
+        const prevSlotSeg = findSlotLastSeg(ownerNode, slotIndex - 1);
+        if (prevSlotSeg) {
+          focusSegInput(prevSlotSeg, 'end');
+          return { handled: true, mutated: false };
+        }
       }
 
       // Otherwise move cleanly to previous segment in DFS order without destroying content

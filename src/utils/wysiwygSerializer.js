@@ -1,15 +1,20 @@
 import katex from 'katex';
 import TurndownService from 'turndown';
 import {
+  buildNodeWithCapturedSlot,
   createMathNode,
   createMathWidgetElement,
   createRootExprTree,
+  createTextNode,
   extractMathTreesFromEditor,
+  extractPrecedingOperand,
   findSlotFirstSeg,
   focusSegInput,
+  getSelectionWrapSpec,
   handleRecursiveMathKeyDown,
   insertNestedNodeAtSeg,
   normalizeNodeType,
+  normalizeSlotNodes,
   parseLatexToMathTree,
   readMathTreeFromDom,
   refreshPrintKatexForEditor,
@@ -1622,11 +1627,180 @@ function exitInlineEq(editorEl, eqEl, side = 'after') {
   }
 }
 
+function countMathNodesAtomicItems(nodes) {
+  let count = 0;
+  for (const n of normalizeSlotNodes(nodes)) {
+    if (n.type === 'text') {
+      count += String(n.value || '').length;
+    } else {
+      count += 1;
+    }
+  }
+  return count;
+}
+
 /**
- * Insert an atomic recursive Desmos-style visual formula widget (`.inline-formula-node.hd-eq`):
- *  - If the user is currently focused inside an existing formula's `<input class="hd-seg">` slot,
- *    inserts the new formula **nested inside that active slot** infinitely deep!
- *  - Otherwise inserts a new root `.hd-eq` widget at the caret in normal prose and focuses its first slot.
+ * Convert an extracted DOM selection fragment (text + optional inline `.hd-eq` / `[data-latex]` nodes)
+ * into clean `MathNode[]` for Case A highlighted selection wrapping.
+ */
+function domFragmentToMathNodes(rootFrag) {
+  const out = [];
+  const walk = (node) => {
+    if (!node) return;
+    if (node.nodeType === 3) {
+      const txt = String(node.nodeValue || '').replace(/\u200B/g, '').replace(/\u00A0/g, ' ');
+      if (txt) out.push(createTextNode(txt));
+      return;
+    }
+    if (node.nodeType === 1) {
+      if (node.classList?.contains('hd-eq')) {
+        const tree = readMathTreeFromDom(node);
+        (tree.slots?.[0] || []).forEach((child) => out.push(child));
+        return;
+      }
+      if (node.hasAttribute?.('data-latex')) {
+        const parsed = parseLatexToMathTree(node.getAttribute('data-latex') || '');
+        (parsed.slots?.[0] || []).forEach((child) => out.push(child));
+        return;
+      }
+      if (node.nodeName === 'BR') return;
+      Array.from(node.childNodes).forEach(walk);
+    }
+  };
+  Array.from(rootFrag.childNodes).forEach(walk);
+  return normalizeSlotNodes(out);
+}
+
+/**
+ * Collect contiguous inline entries (text runs & formula nodes) strictly preceding a collapsed
+ * prose caret within the same inline container (stopping at `<br>` or block boundaries).
+ */
+function collectPrecedingProseEntries(range, editorEl) {
+  if (!range || !range.collapsed) return [];
+  const entries = [];
+  let container = range.startContainer;
+  let offset = range.startOffset;
+
+  // If caret is inside a text node, collect its prefix text first and step to its parent
+  let cursorPrev = null;
+  if (container.nodeType === 3) {
+    const beforeStr = container.nodeValue.slice(0, offset);
+    if (beforeStr) {
+      entries.unshift({ kind: 'text', domNode: container, endOffset: offset, text: beforeStr });
+    }
+    cursorPrev = container.previousSibling;
+  } else if (container.nodeType === 1) {
+    cursorPrev = offset > 0 ? container.childNodes[offset - 1] : null;
+  } else {
+    return [];
+  }
+
+  // Walk backwards across sibling nodes inside the same container
+  while (cursorPrev && editorEl.contains(cursorPrev)) {
+    if (cursorPrev.nodeType === 3) {
+      const str = cursorPrev.nodeValue || '';
+      if (str) {
+        entries.unshift({ kind: 'text', domNode: cursorPrev, endOffset: str.length, text: str });
+      }
+    } else if (cursorPrev.nodeType === 1) {
+      if (cursorPrev.nodeName === 'BR' || BLOCK_TAGS.has(cursorPrev.nodeName)) {
+        break;
+      }
+      if (cursorPrev.classList?.contains('hd-eq')) {
+        const tree = readMathTreeFromDom(cursorPrev);
+        const nodes = normalizeSlotNodes(tree.slots?.[0] || []);
+        entries.unshift({ kind: 'eq', domNode: cursorPrev, nodes, itemCount: countMathNodesAtomicItems(nodes) });
+      } else if (cursorPrev.hasAttribute?.('data-latex')) {
+        const parsed = parseLatexToMathTree(cursorPrev.getAttribute('data-latex') || '');
+        const nodes = normalizeSlotNodes(parsed.slots?.[0] || []);
+        entries.unshift({ kind: 'latex', domNode: cursorPrev, nodes, itemCount: countMathNodesAtomicItems(nodes) });
+      } else {
+        // Stop at other complex inline wrappers to avoid corrupting external styling
+        break;
+      }
+    } else {
+      break;
+    }
+    cursorPrev = cursorPrev.previousSibling;
+  }
+
+  return entries;
+}
+
+/**
+ * Surgically remove the last `totalItemsToRemove` atomic items from `entries` (mutating only
+ * the affected text nodes / formula nodes in place) and return a collapsed `Range` at the exact
+ * insertion point where the new `.hd-eq` widget should be placed.
+ */
+function consumeProseEntriesBackwards(doc, entries, totalItemsToRemove, fallbackRange) {
+  let remainingToDelete = totalItemsToRemove;
+  let insertionRange = fallbackRange.cloneRange();
+
+  for (let i = entries.length - 1; i >= 0 && remainingToDelete > 0; i -= 1) {
+    const entry = entries[i];
+    if (entry.kind === 'text') {
+      const take = Math.min(remainingToDelete, entry.text.length);
+      const delStart = entry.endOffset - take;
+      entry.domNode.deleteData(delStart, take);
+      remainingToDelete -= take;
+      insertionRange = doc.createRange();
+      insertionRange.setStart(entry.domNode, delStart);
+      insertionRange.collapse(true);
+    } else if (entry.kind === 'eq' || entry.kind === 'latex') {
+      if (remainingToDelete >= entry.itemCount) {
+        remainingToDelete -= entry.itemCount;
+        const parent = entry.domNode.parentNode;
+        const nextSib = entry.domNode.nextSibling;
+        entry.domNode.remove();
+        insertionRange = doc.createRange();
+        if (nextSib && parent) {
+          insertionRange.setStartBefore(nextSib);
+        } else if (parent) {
+          insertionRange.setStart(parent, parent.childNodes.length);
+        }
+        insertionRange.collapse(true);
+      } else {
+        // Partial consumption of an existing adjacent formula node: rebuild left remainder
+        const keepCount = entry.itemCount - remainingToDelete;
+        remainingToDelete = 0;
+        const keptNodes = [];
+        let acc = 0;
+        for (const n of entry.nodes) {
+          if (acc >= keepCount) break;
+          if (n.type === 'text') {
+            const avail = String(n.value || '').length;
+            if (acc + avail <= keepCount) {
+              keptNodes.push(n);
+              acc += avail;
+            } else {
+              keptNodes.push(createTextNode(n.value.slice(0, keepCount - acc)));
+              acc = keepCount;
+            }
+          } else {
+            keptNodes.push(n);
+            acc += 1;
+          }
+        }
+        const replacement = createMathWidgetElement(doc, { type: 'expr', slots: [keptNodes] });
+        entry.domNode.replaceWith(replacement);
+        insertionRange = doc.createRange();
+        insertionRange.setStartAfter(replacement);
+        insertionRange.collapse(true);
+      }
+    }
+  }
+
+  return insertionRange;
+}
+
+/**
+ * Insert an atomic recursive Desmos & Casio Natural Display visual formula widget (`.inline-formula-node.hd-eq`):
+ *  - If focused inside an existing formula's `<input class="hd-seg">` slot:
+ *    inserts nested inside that active slot with Preceding Operand Capture (Cases A–D).
+ *  - If focused in normal prose (`<p>`, `<li>`, etc.):
+ *    wraps highlighted text (Case A) OR captures the preceding operand (Cases B–D: Fraction,
+ *    Power/Subscript with Casio/Desmos coefficient precedence, Sqrt/NthRoot) into a new `.hd-eq`
+ *    widget and moves focus straight to the target slot.
  */
 export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType, fallbackSlotEl = null) {
   if (!editorEl || !eqType) return false;
@@ -1653,12 +1827,7 @@ export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType, fal
     return insertNestedNodeAtSeg(activeSeg, normalizedType);
   }
 
-  // 2. Otherwise insert a new root recursive `.hd-eq` widget at the document cursor
-  const initialChild = createMathNode(normalizedType);
-  if (!initialChild) return false;
-  const eqEl = createMathWidgetElement(doc, createRootExprTree(initialChild));
-  if (!eqEl) return false;
-
+  // 2. Prose insertion: inspect selection or preceding operand inside the active block
   let range = getActiveRangeInEditor(editorEl, savedRange);
   if (range) {
     const startNode =
@@ -1673,6 +1842,57 @@ export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType, fal
     }
   }
 
+  let rootChildren = [];
+  let focusSlotIdx = 0;
+
+  if (range && !range.collapsed) {
+    // Case A — Highlighted selection in prose -> wrap entire selection into primary slot
+    const frag = range.extractContents();
+    const capturedNodes = domFragmentToMathNodes(frag);
+    const spec = getSelectionWrapSpec(normalizedType);
+    const wrappedNode = buildNodeWithCapturedSlot(
+      normalizedType,
+      capturedNodes,
+      spec.primarySlotIdx
+    );
+    if (!wrappedNode) return false;
+    rootChildren = [wrappedNode];
+    focusSlotIdx = spec.focusSlotIdx;
+  } else if (range && range.collapsed) {
+    // Cases B, C, D — Collapsed caret in prose -> Preceding Operand Capture
+    const entries = collectPrecedingProseEntries(range, editorEl);
+    const beforeNodes = [];
+    for (const e of entries) {
+      if (e.kind === 'text') beforeNodes.push(createTextNode(e.text));
+      else e.nodes.forEach((n) => beforeNodes.push(n));
+    }
+
+    const plan = extractPrecedingOperand(beforeNodes, normalizedType);
+    const itemsToConsume =
+      countMathNodesAtomicItems(plan.multiplier) + countMathNodesAtomicItems(plan.captured);
+
+    if (itemsToConsume > 0) {
+      range = consumeProseEntriesBackwards(doc, entries, itemsToConsume, range);
+    }
+
+    const createdNode = buildNodeWithCapturedSlot(
+      normalizedType,
+      plan.captured,
+      plan.primarySlotIdx
+    );
+    if (!createdNode) return false;
+    rootChildren = [...plan.multiplier, createdNode];
+    focusSlotIdx = plan.focusSlotIdx;
+  } else {
+    const initialChild = createMathNode(normalizedType);
+    if (!initialChild) return false;
+    rootChildren = [initialChild];
+    focusSlotIdx = 0;
+  }
+
+  const eqEl = createMathWidgetElement(doc, { type: 'expr', slots: [rootChildren] });
+  if (!eqEl) return false;
+
   if (!range) {
     let targetP = editorEl.lastElementChild;
     if (!targetP || targetP.nodeName !== 'P') {
@@ -1684,17 +1904,25 @@ export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType, fal
   } else {
     range.deleteContents();
     range.insertNode(eqEl);
-    const afterSpace = doc.createTextNode('\u00A0');
-    eqEl.parentNode.insertBefore(afterSpace, eqEl.nextSibling);
+    // Avoid duplicating trailing space if already followed by non-empty text
+    const nextSib = eqEl.nextSibling;
+    if (!nextSib || (nextSib.nodeType === 3 && !nextSib.nodeValue)) {
+      const afterSpace = doc.createTextNode('\u00A0');
+      eqEl.parentNode.insertBefore(afterSpace, eqEl.nextSibling);
+    }
   }
 
-  // Focus the first inner slot of the newly inserted formula node (not the empty root boundary seg)
-  const firstChildNode = eqEl.querySelector('.hd-node');
-  const firstSlot = firstChildNode
-    ? findSlotFirstSeg(firstChildNode, 0)
+  // Focus the target slot of the newly created formula node (e.g., denominator, exponent, index, or radicand)
+  const rootSlot = eqEl.querySelector('.hd-math-root-slot');
+  const directNodes = rootSlot
+    ? Array.from(rootSlot.children).filter((c) => c.classList.contains('hd-node'))
+    : [];
+  const targetNodeEl = directNodes[directNodes.length - 1] || eqEl.querySelector('.hd-node');
+  const targetSeg = targetNodeEl
+    ? findSlotFirstSeg(targetNodeEl, focusSlotIdx)
     : eqEl.querySelector('input.hd-seg');
-  if (firstSlot) {
-    focusSegInput(firstSlot, firstSlot.value.length);
+  if (targetSeg) {
+    focusSegInput(targetSeg, targetSeg.value.length);
   }
 
   return true;

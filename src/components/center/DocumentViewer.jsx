@@ -1092,6 +1092,10 @@ export default function DocumentViewer({
       const range = sel.getRangeAt(0);
       if (el.contains(range.commonAncestorContainer)) {
         savedRangeRef.current = range.cloneRange();
+        // When selection lives in prose outside any `.hd-eq` slot, clear stale slot fallback
+        if (!document.activeElement?.matches?.('input.hd-seg')) {
+          lastFocusedMathSlotRef.current = null;
+        }
       }
     };
     document.addEventListener('selectionchange', onSelectionChange);
