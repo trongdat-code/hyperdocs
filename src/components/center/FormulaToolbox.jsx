@@ -17,11 +17,12 @@ const FORMULA_CATEGORIES = [
       { label: 'Tổng Sigma', templateId: 'sum', previewLatex: '\\sum_{\\square}^{\\square}' },
       {
         label: 'Hệ phương trình',
-        templateId: 'cases',
+        templateId: 'system',
         previewLatex: '\\begin{cases} \\square \\\\ \\square \\end{cases}',
       },
       { label: 'Vectơ', templateId: 'vector', previewLatex: '\\vec{\\square}' },
       { label: 'Góc', templateId: 'angle', previewLatex: '\\widehat{\\square}' },
+      { label: 'Cộng trừ', latex: '\\pm', glyph: '±' },
       { label: 'Vô cực', latex: '\\infty', glyph: '∞' },
       { label: 'Khác', latex: '\\neq', glyph: '≠' },
       { label: 'Xấp xỉ', latex: '\\approx', glyph: '≈' },
@@ -42,10 +43,10 @@ const FORMULA_CATEGORIES = [
     items: [
       {
         label: 'Mũi tên phản ứng có điều kiện',
-        templateId: 'chemArrow',
+        templateId: 'reaction',
         previewLatex: '\\xrightarrow{\\square}',
       },
-      { label: 'Số oxi hóa', templateId: 'oxidation', previewLatex: '\\overset{\\square}{\\square}' },
+      { label: 'Số oxi hóa', templateId: 'oxid', previewLatex: '\\overset{\\square}{\\square}' },
       { label: 'Nồng độ mol [M]', templateId: 'molarity', previewLatex: '[\\square]' },
       { label: 'Ion dương', templateId: 'ionPos', previewLatex: '\\square^{\\square+}' },
       { label: 'Ion âm', templateId: 'ionNeg', previewLatex: '\\square^{\\square-}' },
@@ -156,7 +157,7 @@ export default function FormulaToolbox({ onInsertTemplate, onInsertSymbol, onClo
 
           <div className="flex items-center gap-2">
             <span className="hidden md:inline text-[11.5px] text-[#71717A] dark:text-[#A1A1AA]">
-              {t.formulaSlotHint}
+              {t.formulaNestedHint || t.formulaSlotHint}
             </span>
             <button
               type="button"

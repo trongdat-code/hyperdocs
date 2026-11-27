@@ -1,5 +1,5 @@
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
-import { purgeExpiredCompletedTasks } from '../services/storageService';
+import { normalizeTagRegistry, purgeExpiredCompletedTasks } from '../services/storageService';
 
 /**
  * Automatic Bidirectional Cloud Sync with Supabase (`public.user_workspaces`)
@@ -83,6 +83,28 @@ export function mergeWorkspaces(localSnapshot, cloudSnapshot) {
   const flashcards = mergeCollectionById(local.flashcards, cloud.flashcards);
   const quizzes = mergeCollectionById(local.quizzes, cloud.quizzes);
 
+  // Merge centralized master tag registry (`customTags: string[]`) while always preserving system tags
+  const localHasTags = Array.isArray(local.customTags);
+  const cloudHasTags = Array.isArray(cloud.customTags);
+  const localTagsTs = Number(local.customTagsUpdatedAt || 0);
+  const cloudTagsTs = Number(cloud.customTagsUpdatedAt || 0);
+  let mergedRawTags;
+  if (localHasTags && cloudHasTags) {
+    if (localTagsTs > 0 || cloudTagsTs > 0) {
+      mergedRawTags = localTagsTs >= cloudTagsTs ? local.customTags : cloud.customTags;
+    } else {
+      mergedRawTags = [...local.customTags, ...cloud.customTags];
+    }
+  } else if (localHasTags) {
+    mergedRawTags = local.customTags;
+  } else if (cloudHasTags) {
+    mergedRawTags = cloud.customTags;
+  } else {
+    mergedRawTags = undefined;
+  }
+  const customTags = normalizeTagRegistry(mergedRawTags, documents, folders);
+  const customTagsUpdatedAt = Math.max(localTagsTs, cloudTagsTs);
+
   const localSrs = local.srsStats || { lastSession: null, totalReviewedAllTime: 0 };
   const cloudSrs = cloud.srsStats || { lastSession: null, totalReviewedAllTime: 0 };
   const localSessionTs = Number(localSrs.lastSession?.completedAt || 0);
@@ -109,6 +131,8 @@ export function mergeWorkspaces(localSnapshot, cloudSnapshot) {
     schemaVersion: 2,
     documents,
     folders,
+    customTags,
+    customTagsUpdatedAt,
     tasks,
     flashcards,
     quizzes,

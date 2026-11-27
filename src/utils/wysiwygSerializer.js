@@ -1,5 +1,25 @@
 import katex from 'katex';
 import TurndownService from 'turndown';
+import {
+  createMathNode,
+  createMathWidgetElement,
+  createRootExprTree,
+  extractMathTreesFromEditor,
+  findSlotFirstSeg,
+  focusSegInput,
+  handleRecursiveMathKeyDown,
+  insertNestedNodeAtSeg,
+  normalizeNodeType,
+  parseLatexToMathTree,
+  readMathTreeFromDom,
+  refreshPrintKatexForEditor,
+  renderMathWidgetHtml,
+  serializeMathTreeToLatex,
+  syncMathWidgetState,
+  syncSegInputSize,
+} from './mathTree';
+
+export { extractMathTreesFromEditor, refreshPrintKatexForEditor, syncMathWidgetState };
 
 /**
  * Bidirectional Markdown + KaTeX <-> Editable WYSIWYG HTML Serializer & Rich Formatter
@@ -51,229 +71,37 @@ export function normalizeCssColorToHex(value) {
   return null;
 }
 
-const UNICODE_TO_LATEX_MAP = {
-  'α': '\\alpha ',
-  'β': '\\beta ',
-  'γ': '\\gamma ',
-  'Δ': '\\Delta ',
-  'δ': '\\delta ',
-  'ε': '\\varepsilon ',
-  'θ': '\\theta ',
-  'λ': '\\lambda ',
-  'μ': '\\mu ',
-  'π': '\\pi ',
-  'ρ': '\\rho ',
-  'σ': '\\sigma ',
-  'τ': '\\tau ',
-  'φ': '\\varphi ',
-  'ω': '\\omega ',
-  'Ω': '\\Omega ',
-  '∞': '\\infty ',
-  '≠': '\\neq ',
-  '≈': '\\approx ',
-  '≤': '\\le ',
-  '≥': '\\ge ',
-  '∈': '\\in ',
-  '⊂': '\\subset ',
-  '⇒': '\\Rightarrow ',
-  '⇔': '\\Leftrightarrow ',
-  '⊥': '\\perp ',
-  '∥': '\\parallel ',
-  '→': '\\to ',
-  '⇌': '\\rightleftharpoons ',
-  '↓': '\\downarrow ',
-  '↑': '\\uparrow ',
-  '·': '\\cdot ',
-  '×': '\\times ',
-  '°': '^\\circ ',
-};
-
-function normalizeInteractiveSlotText(raw) {
-  let out = String(raw || '')
-    .replace(/\u200B/g, '')
-    .replace(/\u00A0/g, ' ')
-    .trim();
-  if (!out) return '';
-  out = out.replace(/[αβγΔδεθλμπρστφωΩ∞≠≈≤≥∈⊂⇒⇔⊥∥→⇌↓↑·×°]/g, (ch) => UNICODE_TO_LATEX_MAP[ch] || ch);
-  return out.replace(/\s+/g, ' ').trim();
-}
-
-function formatInteractiveChemSlot(raw) {
-  const clean = normalizeInteractiveSlotText(raw);
-  if (!clean) return '';
-  if (/\\[a-zA-Z]+|[_^]/.test(clean)) return clean;
-  return `\\text{${clean}}`;
-}
-
-function readSlotMap(eqEl) {
-  const slots = {};
-  eqEl.querySelectorAll?.('[data-slot]').forEach((slotEl) => {
-    const key = slotEl.getAttribute('data-slot');
-    if (key) {
-      const raw =
-        slotEl.tagName === 'INPUT'
-          ? slotEl.value || slotEl.getAttribute('value') || ''
-          : slotEl.textContent || '';
-      slots[key] = raw.replace(/\u200B/g, '').trim();
-    }
-  });
-  return slots;
-}
-
 /**
- * Resize an inline `<input class="hd-slot">` smoothly to fit its content width
- * and keep its HTML `value` attribute synced for lossless DOM cloning / serialization.
+ * Resize an inline `<input class="hd-seg">` smoothly to fit its content width
+ * and keep the enclosing recursive `.hd-eq` widget's `data-math-tree`, `data-latex`,
+ * and print-only KaTeX span synchronized in-place with zero outer DOM churn.
  */
 export function syncSlotInputSize(inputEl) {
   if (!inputEl || inputEl.tagName !== 'INPUT') return;
-  const val = inputEl.value || '';
-  inputEl.setAttribute('value', val);
-  const ph = inputEl.getAttribute('placeholder') || '';
-  const isWide = inputEl.classList.contains('hd-slot-wide');
-  const minCh = isWide ? 6.5 : inputEl.classList.contains('hd-slot-xs') ? 1.8 : 2.1;
-  const len = Math.max(val.length, ph.length ? Math.min(ph.length, isWide ? 8 : 2) : 1);
-  inputEl.style.width = `${Math.max(minCh, len + 0.9)}ch`;
+  syncSegInputSize(inputEl);
+  const rootEqEl = inputEl.closest?.('.hd-eq');
+  if (rootEqEl) {
+    syncMathWidgetState(rootEqEl, true);
+  }
 }
 
 /**
- * Compile an inline interactive `.hd-eq` widget DOM node into clean KaTeX LaTeX.
+ * Compile a recursive inline interactive `.hd-eq` widget DOM node into clean standard LaTeX.
  */
 export function buildLatexFromEqElement(eqEl) {
-  const eqType = eqEl?.getAttribute?.('data-eq-type');
-  if (!eqType) return { latex: '', displayMode: false };
-  const s = readSlotMap(eqEl);
-  const val = (k, fallback = '') => normalizeInteractiveSlotText(s[k]) || fallback;
-  const chem = (k, fallback = '') => formatInteractiveChemSlot(s[k]) || fallback;
-
-  switch (eqType) {
-    case 'fraction':
-      return { latex: `\\frac{${val('num', '\\square')}}{${val('den', '\\square')}}`, displayMode: false };
-    case 'sqrt':
-      return { latex: `\\sqrt{${val('rad', '\\square')}}`, displayMode: false };
-    case 'nthroot':
-      return { latex: `\\sqrt[${val('idx', 'n')}]{${val('rad', '\\square')}}`, displayMode: false };
-    case 'power':
-      return { latex: `${val('base', 'x')}^{${val('exp', 'n')}}`, displayMode: false };
-    case 'subscript':
-      return { latex: `${val('base', 'x')}_{${val('sub', 'n')}}`, displayMode: false };
-    case 'integral': {
-      const lo = val('lower');
-      const hi = val('upper');
-      const bounds = lo || hi ? `_{${lo || 'a'}}^{${hi || 'b'}}` : '';
-      return {
-        latex: `\\int${bounds} ${val('expr', 'f(x)')}\\,d${val('var', 'x')}`,
-        displayMode: false,
-      };
-    }
-    case 'limit': {
-      const expr = val('expr');
-      const head = `\\lim_{${val('var', 'x')} \\to ${val('target', '\\infty')}}`;
-      return { latex: expr ? `${head} ${expr}` : head, displayMode: false };
-    }
-    case 'sum': {
-      const expr = val('expr');
-      const head = `\\sum_{${val('lower', 'i=1')}}^{${val('upper', 'n')}}`;
-      return { latex: expr ? `${head} ${expr}` : head, displayMode: false };
-    }
-    case 'cases': {
-      const rows = [val('eq1', '\\square'), val('eq2', '\\square')];
-      const eq3 = val('eq3');
-      if (eq3) rows.push(eq3);
-      return { latex: `\\begin{cases} ${rows.join(' \\\\ ')} \\end{cases}`, displayMode: true };
-    }
-    case 'vector':
-      return { latex: `\\vec{${val('sym', 'a')}}`, displayMode: false };
-    case 'angle':
-      return { latex: `\\widehat{${val('sym', 'ABC')}}`, displayMode: false };
-    case 'chemArrow':
-      return { latex: `\\xrightarrow{${chem('above', 't^\\circ')}}`, displayMode: false };
-    case 'oxidation':
-      return {
-        latex: `\\overset{${val('num', '+n')}}{${chem('el', '\\text{X}')}}`,
-        displayMode: false,
-      };
-    case 'molarity':
-      return { latex: `[${chem('species', '\\text{M}')}]`, displayMode: false };
-    case 'ionPos':
-      return { latex: `${chem('base', '\\text{M}')}^{${val('charge')}+}`, displayMode: false };
-    case 'ionNeg':
-      return { latex: `${chem('base', '\\text{X}')}^{${val('charge')}-}`, displayMode: false };
-    default:
-      return { latex: '', displayMode: false };
-  }
+  if (!eqEl) return { latex: '', displayMode: false };
+  const tree = readMathTreeFromDom(eqEl);
+  return serializeMathTreeToLatex(tree);
 }
 
 /**
- * Render an atomic inline interactive visual formula widget (`contenteditable="false"`)
- * containing isolated native `<input type="text" class="hd-slot">` fields arranged in true
- * mathematical geometry so browser keystrokes can never split formulas across lines or trigger
- * parent `contentEditable` re-renders.
+ * Render an atomic recursive inline interactive visual formula widget (`contenteditable="false"`)
+ * powered by `MathNode` trees.
  */
-export function renderInteractiveEqHtml(eqType, initial = {}) {
-  const slot = (name, ph = '', cls = '') => {
-    const rawVal = initial[name] ? String(initial[name]) : '';
-    const isWide = cls.includes('hd-slot-wide');
-    const isXs = cls.includes('hd-slot-xs');
-    const minCh = isWide ? 6.5 : isXs ? 1.8 : 2.1;
-    const widthCh = Math.max(minCh, Math.max(rawVal.length, Math.min(ph.length || 1, isWide ? 8 : 2)) + 0.9);
-    return `<input type="text" class="hd-slot ${cls}" data-slot="${escapeAttr(name)}" placeholder="${escapeAttr(ph)}" value="${escapeAttr(rawVal)}" style="width:${widthCh}ch" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />`;
-  };
-
-  let inner = '';
-  switch (eqType) {
-    case 'fraction':
-      inner = `<span class="hd-eq-frac"><span class="hd-eq-frac-num">${slot('num', 'a')}</span><span class="hd-eq-frac-bar" aria-hidden="true"></span><span class="hd-eq-frac-den">${slot('den', 'b')}</span></span>`;
-      break;
-    case 'sqrt':
-      inner = `<span class="hd-eq-root"><svg class="hd-eq-radical-svg" viewBox="0 0 18 28" fill="none" aria-hidden="true"><path d="M1.5 16.5 L5.5 16.5 L9.2 26 L16.2 2 L18 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="hd-eq-radicand">${slot('rad', 'x')}</span></span>`;
-      break;
-    case 'nthroot':
-      inner = `<span class="hd-eq-root hd-eq-nthroot"><span class="hd-eq-root-idx">${slot('idx', 'n', 'hd-slot-sm')}</span><svg class="hd-eq-radical-svg" viewBox="0 0 18 28" fill="none" aria-hidden="true"><path d="M1.5 16.5 L5.5 16.5 L9.2 26 L16.2 2 L18 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="hd-eq-radicand">${slot('rad', 'x')}</span></span>`;
-      break;
-    case 'power':
-      inner = `<span class="hd-eq-script">${slot('base', 'x')}<sup class="hd-eq-sup">${slot('exp', 'n', 'hd-slot-sm')}</sup></span>`;
-      break;
-    case 'subscript':
-      inner = `<span class="hd-eq-script">${slot('base', 'x')}<sub class="hd-eq-sub">${slot('sub', 'n', 'hd-slot-sm')}</sub></span>`;
-      break;
-    case 'integral':
-      inner = `<span class="hd-eq-bigop"><span class="hd-eq-bigop-stack">${slot('upper', 'b', 'hd-slot-xs')}<span class="hd-eq-bigop-sym">∫</span>${slot('lower', 'a', 'hd-slot-xs')}</span>${slot('expr', 'f(x)')}<span class="hd-eq-lit">d</span>${slot('var', 'x', 'hd-slot-sm')}</span>`;
-      break;
-    case 'limit':
-      inner = `<span class="hd-eq-lim"><span class="hd-eq-lim-stack"><span class="hd-eq-lim-word">lim</span><span class="hd-eq-lim-sub">${slot('var', 'x', 'hd-slot-xs')}<span class="hd-eq-lit-sm">→</span>${slot('target', '∞', 'hd-slot-xs')}</span></span>${slot('expr', 'f(x)')}</span>`;
-      break;
-    case 'sum':
-      inner = `<span class="hd-eq-bigop"><span class="hd-eq-bigop-stack">${slot('upper', 'n', 'hd-slot-xs')}<span class="hd-eq-bigop-sym">∑</span>${slot('lower', 'i=1', 'hd-slot-xs')}</span>${slot('expr', 'aᵢ')}</span>`;
-      break;
-    case 'cases':
-      inner = `<span class="hd-eq-cases"><span class="hd-eq-brace" aria-hidden="true">{</span><span class="hd-eq-cases-rows">${slot('eq1', 'x + y = 1', 'hd-slot-wide')}${slot('eq2', 'x - y = 0', 'hd-slot-wide')}</span></span>`;
-      break;
-    case 'vector':
-      inner = `<span class="hd-eq-accent"><span class="hd-eq-accent-top" aria-hidden="true">→</span>${slot('sym', 'a')}</span>`;
-      break;
-    case 'angle':
-      inner = `<span class="hd-eq-accent"><span class="hd-eq-accent-top" aria-hidden="true">^</span>${slot('sym', 'ABC')}</span>`;
-      break;
-    case 'chemArrow':
-      inner = `<span class="hd-eq-chem-arrow">${slot('above', 't°', 'hd-slot-sm')}<span class="hd-eq-arrow-line" aria-hidden="true"><span class="hd-eq-arrow-shaft"></span><span class="hd-eq-arrow-head">▸</span></span></span>`;
-      break;
-    case 'oxidation':
-      inner = `<span class="hd-eq-ox">${slot('num', '+n', 'hd-slot-xs')}${slot('el', 'X')}</span>`;
-      break;
-    case 'molarity':
-      inner = `<span class="hd-eq-molar"><span class="hd-eq-lit">[</span>${slot('species', 'M')}<span class="hd-eq-lit">]</span></span>`;
-      break;
-    case 'ionPos':
-      inner = `<span class="hd-eq-script">${slot('base', 'M')}<sup class="hd-eq-sup">${slot('charge', 'n', 'hd-slot-xs')}<span class="hd-eq-lit-sm">+</span></sup></span>`;
-      break;
-    case 'ionNeg':
-      inner = `<span class="hd-eq-script">${slot('base', 'X')}<sup class="hd-eq-sup">${slot('charge', 'n', 'hd-slot-xs')}<span class="hd-eq-lit-sm">−</span></sup></span>`;
-      break;
-    default:
-      return '';
-  }
-
-  return `<span class="inline-formula-node hd-eq" contenteditable="false" data-eq-type="${escapeAttr(eqType)}">${inner}</span>`;
+export function renderInteractiveEqHtml(eqType) {
+  const node = createMathNode(normalizeNodeType(eqType));
+  if (!node) return '';
+  return renderMathWidgetHtml(createRootExprTree(node));
 }
 
 /**
@@ -298,7 +126,17 @@ export function renderMathChipHtml(latex, displayMode = false) {
   return `<span class="inline-formula-node hd-math-inline" contenteditable="false" data-math-kind="inline" data-latex="${encoded}">${rendered}</span>`;
 }
 
-function formatInlineMarkdown(rawLine, tokens) {
+function renderHydratedMathHtml(latex, displayMode, options = {}) {
+  const cleanLatex = String(latex || '').trim();
+  const savedTree = options?.interactiveFormulas && options?.mathNodes?.[cleanLatex];
+  if (savedTree && typeof document !== 'undefined') {
+    const widgetHtml = renderMathWidgetHtml(savedTree);
+    if (widgetHtml) return widgetHtml;
+  }
+  return renderMathChipHtml(cleanLatex, displayMode);
+}
+
+function formatInlineMarkdown(rawLine, tokens, options = {}) {
   let out = rawLine;
 
   // Mask inline code spans first
@@ -314,7 +152,7 @@ function formatInlineMarkdown(rawLine, tokens) {
       return match;
     }
     const idx = tokens.length;
-    tokens.push(renderMathChipHtml(inner.trim(), false));
+    tokens.push(renderHydratedMathHtml(inner.trim(), false, options));
     return `\uE010TOK${idx}\uE011`;
   });
 
@@ -424,7 +262,7 @@ function parseListLineInfo(line) {
   return null;
 }
 
-function buildNestedListHtml(items, inlineTokens) {
+function buildNestedListHtml(items, inlineTokens, options = {}) {
   let idx = 0;
 
   const renderLevel = (baseIndent, listKind) => {
@@ -445,7 +283,7 @@ function buildNestedListHtml(items, inlineTokens) {
         childrenHtml += renderLevel(items[idx].indent, items[idx].kind);
       }
 
-      const formatted = formatInlineMarkdown(item.content, inlineTokens);
+      const formatted = formatInlineMarkdown(item.content, inlineTokens, options);
       if (item.kind === 'checklist') {
         const checkedAttr = item.checked ? ' checked' : '';
         html += `<li class="hd-checklist-item" data-checked="${item.checked ? 'true' : 'false'}"><input type="checkbox" class="hd-checklist-box" contenteditable="false"${checkedAttr} /><span class="hd-checklist-text">${formatted || '<br>'}</span>${childrenHtml}</li>`;
@@ -468,8 +306,10 @@ function buildNestedListHtml(items, inlineTokens) {
 /**
  * Convert stored Markdown + KaTeX + safe color/highlight annotations into
  * rich editable HTML for the always-editable WYSIWYG canvas.
+ * When `options.interactiveFormulas` & `options.mathNodes` are provided,
+ * saved Desmos `MathNode` formulas hydrate losslessly as live recursive editors.
  */
-export function markdownToEditorHtml(markdown) {
+export function markdownToEditorHtml(markdown, options = {}) {
   const raw = String(markdown || '').replace(/\r\n?/g, '\n');
   if (!raw.trim()) return '';
 
@@ -487,7 +327,7 @@ export function markdownToEditorHtml(markdown) {
   // 2. Mask display math blocks ($$...$$)
   text = text.replace(/\$\$([\s\S]*?)\$\$/g, (_m, latex) => {
     const idx = blockTokens.length;
-    blockTokens.push(renderMathChipHtml(latex.trim(), true));
+    blockTokens.push(renderHydratedMathHtml(latex.trim(), true, options));
     return `\n\n\uE012BLK${idx}\uE013\n\n`;
   });
 
@@ -523,7 +363,7 @@ export function markdownToEditorHtml(markdown) {
     const headingMatch = line.match(/^\s*(#{1,6})\s+(.+?)\s*#*$/);
     if (headingMatch) {
       const level = headingMatch[1].length;
-      htmlBlocks.push(`<h${level}>${formatInlineMarkdown(headingMatch[2], inlineTokens)}</h${level}>`);
+      htmlBlocks.push(`<h${level}>${formatInlineMarkdown(headingMatch[2], inlineTokens, options)}</h${level}>`);
       i += 1;
       continue;
     }
@@ -538,7 +378,7 @@ export function markdownToEditorHtml(markdown) {
         i += 1;
       }
       const thead = `<thead><tr>${headers
-        .map((h) => `<th>${formatInlineMarkdown(h, inlineTokens)}</th>`)
+        .map((h) => `<th>${formatInlineMarkdown(h, inlineTokens, options)}</th>`)
         .join('')}</tr></thead>`;
       const tbody =
         bodyRows.length > 0
@@ -546,7 +386,7 @@ export function markdownToEditorHtml(markdown) {
               .map(
                 (row) =>
                   `<tr>${headers
-                    .map((_, colIdx) => `<td>${formatInlineMarkdown(row[colIdx] || '', inlineTokens)}</td>`)
+                    .map((_, colIdx) => `<td>${formatInlineMarkdown(row[colIdx] || '', inlineTokens, options)}</td>`)
                     .join('')}</tr>`
               )
               .join('')}</tbody>`
@@ -571,14 +411,14 @@ export function markdownToEditorHtml(markdown) {
           bodyLines.push(quoteLines[k]);
         }
         const inner = bodyLines
-          .map((ql) => formatInlineMarkdown(ql, inlineTokens))
+          .map((ql) => formatInlineMarkdown(ql, inlineTokens, options))
           .join('<br>');
         htmlBlocks.push(
           `<div class="hd-callout" data-callout="${escapeAttr(calloutType)}"><span class="hd-callout-icon" contenteditable="false">💡</span><div class="hd-callout-body"><p>${inner || '<br>'}</p></div></div>`
         );
       } else {
         const inner = quoteLines
-          .map((ql) => formatInlineMarkdown(ql, inlineTokens))
+          .map((ql) => formatInlineMarkdown(ql, inlineTokens, options))
           .join('<br>');
         htmlBlocks.push(`<blockquote><p>${inner}</p></blockquote>`);
       }
@@ -595,7 +435,7 @@ export function markdownToEditorHtml(markdown) {
         listItems.push(info);
         i += 1;
       }
-      htmlBlocks.push(buildNestedListHtml(listItems, inlineTokens));
+      htmlBlocks.push(buildNestedListHtml(listItems, inlineTokens, options));
       continue;
     }
 
@@ -611,7 +451,7 @@ export function markdownToEditorHtml(markdown) {
       !parseListLineInfo(lines[i]) &&
       !(lines[i].includes('|') && i + 1 < lines.length && isTableSeparatorLine(lines[i + 1]))
     ) {
-      paraLines.push(formatInlineMarkdown(lines[i], inlineTokens));
+      paraLines.push(formatInlineMarkdown(lines[i], inlineTokens, options));
       i += 1;
     }
     if (paraLines.length > 0) {
@@ -650,9 +490,26 @@ function createMarkdownTurndown() {
     return escaped.replace(/HDMATHPLACEHOLDER(\d+)END/g, (_m, idx) => saved[Number(idx)] ?? '');
   };
 
-  // Lossless KaTeX math blocks & inline chips
+  // Recursive inline interactive visual equation widgets (`.hd-eq`) -> standard KaTeX `$...$` / `$$...$$`
+  td.addRule('hdInlineEq', {
+    filter: (node) =>
+      node.nodeType === 1 &&
+      (node.classList?.contains('hd-eq') ||
+        node.hasAttribute('data-math-tree') ||
+        node.hasAttribute('data-eq-type')),
+    replacement: (_content, node) => {
+      const { latex, displayMode } = buildLatexFromEqElement(node);
+      if (!latex) return '';
+      return displayMode ? `\n\n$$\n${latex}\n$$\n\n` : `$${latex}$`;
+    },
+  });
+
+  // Lossless KaTeX math blocks & inline chips (excluding `.hd-eq` handled above)
   td.addRule('hdMath', {
-    filter: (node) => node.nodeType === 1 && node.hasAttribute('data-latex'),
+    filter: (node) =>
+      node.nodeType === 1 &&
+      node.hasAttribute('data-latex') &&
+      !node.classList?.contains('hd-eq'),
     replacement: (_content, node) => {
       const latex = (node.getAttribute('data-latex') || '').trim();
       if (!latex) return '';
@@ -663,21 +520,13 @@ function createMarkdownTurndown() {
     },
   });
 
-  // Inline interactive visual equation widgets (`.hd-eq[data-eq-type]`) -> standard KaTeX `$...$` / `$$...$$`
-  td.addRule('hdInlineEq', {
-    filter: (node) => node.nodeType === 1 && node.hasAttribute('data-eq-type'),
-    replacement: (_content, node) => {
-      const { latex, displayMode } = buildLatexFromEqElement(node);
-      if (!latex) return '';
-      return displayMode ? `\n\n$$\n${latex}\n$$\n\n` : `$${latex}$`;
-    },
-  });
-
-  // Ignore decorative callout icon & checklist checkbox inputs during Turndown text extraction
+  // Ignore decorative callout icon, print-only KaTeX mirror & checklist checkbox inputs during Turndown extraction
   td.addRule('hdChromeIgnore', {
     filter: (node) =>
       node.nodeType === 1 &&
-      (node.classList?.contains('hd-callout-icon') || node.classList?.contains('hd-checklist-box')),
+      (node.classList?.contains('hd-callout-icon') ||
+        node.classList?.contains('hd-checklist-box') ||
+        node.classList?.contains('hd-eq-print-katex')),
     replacement: () => '',
   });
 
@@ -864,9 +713,12 @@ export function editorHtmlToMarkdown(rootEl) {
     workingEl = document.createElement('div');
     workingEl.innerHTML = rootEl;
   } else {
-    // Sync live `<input>` properties into HTML attributes before cloning so values are preserved losslessly
-    rootEl.querySelectorAll?.('input.hd-slot').forEach((inp) => {
+    // Sync live `<input>` properties & recursive math trees into HTML attributes before cloning
+    rootEl.querySelectorAll?.('input.hd-seg, input.hd-slot').forEach((inp) => {
       inp.setAttribute('value', inp.value || '');
+    });
+    rootEl.querySelectorAll?.('.hd-eq').forEach((eqEl) => {
+      syncMathWidgetState(eqEl, false);
     });
     rootEl.querySelectorAll?.('input.hd-checklist-box').forEach((cb) => {
       if (cb.checked) cb.setAttribute('checked', '');
@@ -1771,43 +1623,53 @@ function exitInlineEq(editorEl, eqEl, side = 'after') {
 }
 
 /**
- * Insert an atomic inline visual equation widget (`.inline-formula-node.hd-eq`) directly at the cursor
- * inside the WYSIWYG Note editor and auto-focus its first native `<input class="hd-slot">`.
+ * Insert an atomic recursive Desmos-style visual formula widget (`.inline-formula-node.hd-eq`):
+ *  - If the user is currently focused inside an existing formula's `<input class="hd-seg">` slot,
+ *    inserts the new formula **nested inside that active slot** infinitely deep!
+ *  - Otherwise inserts a new root `.hd-eq` widget at the caret in normal prose and focuses its first slot.
  */
-export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType) {
+export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType, fallbackSlotEl = null) {
   if (!editorEl || !eqType) return false;
-  const html = renderInteractiveEqHtml(eqType);
-  if (!html) return false;
-
+  const normalizedType = normalizeNodeType(eqType);
   const doc = editorEl.ownerDocument;
-  const temp = doc.createElement('div');
-  temp.innerHTML = html;
-  const eqEl = temp.firstElementChild;
+
+  // 1. Check if focused inside an existing formula slot -> NEST inside that active slot!
+  const activeEl = doc.activeElement;
+  const activeSeg =
+    activeEl &&
+    activeEl.tagName === 'INPUT' &&
+    activeEl.classList.contains('hd-seg') &&
+    editorEl.contains(activeEl)
+      ? activeEl
+      : fallbackSlotEl &&
+          fallbackSlotEl.isConnected &&
+          fallbackSlotEl.tagName === 'INPUT' &&
+          fallbackSlotEl.classList.contains('hd-seg') &&
+          editorEl.contains(fallbackSlotEl)
+        ? fallbackSlotEl
+        : null;
+
+  if (activeSeg) {
+    return insertNestedNodeAtSeg(activeSeg, normalizedType);
+  }
+
+  // 2. Otherwise insert a new root recursive `.hd-eq` widget at the document cursor
+  const initialChild = createMathNode(normalizedType);
+  if (!initialChild) return false;
+  const eqEl = createMathWidgetElement(doc, createRootExprTree(initialChild));
   if (!eqEl) return false;
 
-  let range = null;
-
-  // If the user is currently focused inside an existing inline formula's `<input class="hd-slot">`,
-  // insert the new formula cleanly right AFTER that existing atomic formula node.
-  const activeEl = doc.activeElement;
-  if (activeEl && editorEl.contains(activeEl) && activeEl.closest?.('.hd-eq')) {
-    const existingEq = activeEl.closest('.hd-eq');
-    range = doc.createRange();
-    range.setStartAfter(existingEq);
-    range.collapse(true);
-  } else {
-    range = getActiveRangeInEditor(editorEl, savedRange);
-    if (range) {
-      const startNode =
-        range.startContainer.nodeType === 1
-          ? range.startContainer
-          : range.startContainer.parentElement;
-      const existingFormula = startNode?.closest?.('.inline-formula-node, .hd-eq, [data-latex]');
-      if (existingFormula && editorEl.contains(existingFormula)) {
-        range = doc.createRange();
-        range.setStartAfter(existingFormula);
-        range.collapse(true);
-      }
+  let range = getActiveRangeInEditor(editorEl, savedRange);
+  if (range) {
+    const startNode =
+      range.startContainer.nodeType === 1
+        ? range.startContainer
+        : range.startContainer.parentElement;
+    const existingFormula = startNode?.closest?.('.inline-formula-node, .hd-eq, [data-latex]');
+    if (existingFormula && editorEl.contains(existingFormula)) {
+      range = doc.createRange();
+      range.setStartAfter(existingFormula);
+      range.collapse(true);
     }
   }
 
@@ -1826,42 +1688,80 @@ export function insertInteractiveEqAtSelection(editorEl, savedRange, eqType) {
     eqEl.parentNode.insertBefore(afterSpace, eqEl.nextSibling);
   }
 
-  // Auto-focus the first native `<input class="hd-slot">` cleanly without disturbing outer DOM
-  const firstSlot = eqEl.querySelector('input.hd-slot');
+  // Focus the first inner slot of the newly inserted formula node (not the empty root boundary seg)
+  const firstChildNode = eqEl.querySelector('.hd-node');
+  const firstSlot = firstChildNode
+    ? findSlotFirstSeg(firstChildNode, 0)
+    : eqEl.querySelector('input.hd-seg');
   if (firstSlot) {
-    firstSlot.focus({ preventScroll: true });
-    firstSlot.setSelectionRange?.(0, firstSlot.value.length);
+    focusSegInput(firstSlot, firstSlot.value.length);
   }
 
   return true;
 }
 
 /**
+ * Convert a clicked static KaTeX chip (`[data-latex]:not(.hd-eq)`) inside a Note into a
+ * live editable recursive `.hd-eq` widget so saved/imported formulas can be nested & edited.
+ */
+export function convertStaticMathChipToInteractive(editorEl, chipEl, savedMathNodes = null) {
+  if (!editorEl || !chipEl || !editorEl.contains(chipEl)) return false;
+  if (chipEl.classList.contains('hd-eq')) return false;
+  const latex = (chipEl.getAttribute('data-latex') || '').trim();
+  if (!latex) return false;
+
+  const doc = editorEl.ownerDocument;
+  const tree = savedMathNodes?.[latex] || parseLatexToMathTree(latex);
+  const eqEl = createMathWidgetElement(doc, tree);
+  if (!eqEl) return false;
+
+  chipEl.replaceWith(eqEl);
+  const firstNode = eqEl.querySelector('.hd-node');
+  const targetSeg = firstNode ? findSlotFirstSeg(firstNode, 0) : eqEl.querySelector('input.hd-seg');
+  if (targetSeg) {
+    focusSegInput(targetSeg, targetSeg.value.length);
+  }
+  return true;
+}
+
+/**
  * Insert a single math/science symbol cleanly:
- *  - If caret is inside a focused native `<input class="hd-slot">`, inserts the symbol glyph
+ *  - If caret is inside a focused native `<input class="hd-seg">`, inserts the symbol glyph
  *    directly into that slot input without touching the parent `contentEditable` DOM.
  *  - Otherwise inserts an atomic KaTeX chip directly at the cursor and places the caret right after it.
  */
-export function insertSymbolAtSelection(editorEl, savedRange, latex, inlineGlyph = '') {
+export function insertSymbolAtSelection(
+  editorEl,
+  savedRange,
+  latex,
+  inlineGlyph = '',
+  fallbackSlotEl = null
+) {
   if (!editorEl) return false;
   const doc = editorEl.ownerDocument;
   const activeEl = doc.activeElement;
-
-  if (
+  const activeSeg =
     activeEl &&
     activeEl.tagName === 'INPUT' &&
-    activeEl.classList.contains('hd-slot') &&
-    editorEl.contains(activeEl) &&
-    inlineGlyph
-  ) {
-    const start = activeEl.selectionStart ?? activeEl.value.length;
-    const end = activeEl.selectionEnd ?? start;
-    const nextVal = activeEl.value.slice(0, start) + inlineGlyph + activeEl.value.slice(end);
-    activeEl.value = nextVal;
-    syncSlotInputSize(activeEl);
+    activeEl.classList.contains('hd-seg') &&
+    editorEl.contains(activeEl)
+      ? activeEl
+      : fallbackSlotEl &&
+          fallbackSlotEl.isConnected &&
+          fallbackSlotEl.tagName === 'INPUT' &&
+          fallbackSlotEl.classList.contains('hd-seg') &&
+          editorEl.contains(fallbackSlotEl)
+        ? fallbackSlotEl
+        : null;
+
+  if (activeSeg && inlineGlyph) {
+    const start = activeSeg.selectionStart ?? activeSeg.value.length;
+    const end = activeSeg.selectionEnd ?? start;
+    const nextVal = activeSeg.value.slice(0, start) + inlineGlyph + activeSeg.value.slice(end);
+    activeSeg.value = nextVal;
+    syncSlotInputSize(activeSeg);
     const nextCaret = start + inlineGlyph.length;
-    activeEl.focus({ preventScroll: true });
-    activeEl.setSelectionRange?.(nextCaret, nextCaret);
+    focusSegInput(activeSeg, nextCaret);
     return true;
   }
 
@@ -1869,119 +1769,15 @@ export function insertSymbolAtSelection(editorEl, savedRange, latex, inlineGlyph
 }
 
 /**
- * Smooth, zero-flicker keyboard navigation inside native `<input class="hd-slot">` fields
- * inside atomic `.inline-formula-node.hd-eq` widgets:
- *  - `Tab` / `Shift+Tab`: jump between slots, or exit cleanly past the formula.
- *  - `ArrowRight` at end of input / `ArrowLeft` at start of input: jump to adjacent slot or exit cleanly.
- *  - `Enter` / `Escape`: advance to next slot or exit cleanly after the formula.
- *  - `Backspace` when all slots in the formula are empty: removes the empty formula widget cleanly.
+ * Smooth, zero-flicker Desmos keyboard shortcuts & navigation inside recursive `.hd-eq` widgets:
+ *  - `/` wraps preceding term into fraction numerator and moves focus into denominator.
+ *  - `^` creates inline superscript exponent; `_` creates inline subscript.
+ *  - `ArrowRight` / `ArrowLeft` steps smoothly into & out of child slots.
+ *  - `Tab` / `Shift+Tab` / `Enter` / `Escape` jumps across slots or exits cleanly.
+ *  - `Backspace` on an empty slot cleanly unwraps/deletes that nested block without flickering.
  *
  * Returns `{ handled: boolean, mutated: boolean }`.
  */
 export function handleInlineEqKeyDown(editorEl, e) {
-  if (!editorEl) return { handled: false, mutated: false };
-  const target = e.target;
-  if (
-    !target ||
-    target.tagName !== 'INPUT' ||
-    !target.classList.contains('hd-slot') ||
-    !editorEl.contains(target)
-  ) {
-    return { handled: false, mutated: false };
-  }
-
-  const eqEl = target.closest('.hd-eq');
-  if (!eqEl) return { handled: false, mutated: false };
-
-  const slots = Array.from(eqEl.querySelectorAll('input.hd-slot'));
-  const idx = slots.indexOf(target);
-
-  const focusInputSlot = (inputEl, toEnd = false) => {
-    inputEl.focus({ preventScroll: true });
-    const pos = toEnd ? inputEl.value.length : 0;
-    inputEl.setSelectionRange?.(pos, pos);
-  };
-
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    if (e.shiftKey) {
-      if (idx > 0) focusInputSlot(slots[idx - 1], true);
-      else exitInlineEq(editorEl, eqEl, 'before');
-    } else if (idx >= 0 && idx < slots.length - 1) {
-      focusInputSlot(slots[idx + 1], false);
-    } else {
-      exitInlineEq(editorEl, eqEl, 'after');
-    }
-    return { handled: true, mutated: false };
-  }
-
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    if (idx >= 0 && idx < slots.length - 1) {
-      focusInputSlot(slots[idx + 1], false);
-    } else {
-      exitInlineEq(editorEl, eqEl, 'after');
-    }
-    return { handled: true, mutated: false };
-  }
-
-  if (e.key === 'Escape') {
-    e.preventDefault();
-    exitInlineEq(editorEl, eqEl, 'after');
-    return { handled: true, mutated: false };
-  }
-
-  if (e.key === 'ArrowRight') {
-    const start = target.selectionStart ?? 0;
-    const end = target.selectionEnd ?? 0;
-    if (start === end && end >= target.value.length) {
-      e.preventDefault();
-      if (idx >= 0 && idx < slots.length - 1) {
-        focusInputSlot(slots[idx + 1], false);
-      } else {
-        exitInlineEq(editorEl, eqEl, 'after');
-      }
-      return { handled: true, mutated: false };
-    }
-  }
-
-  if (e.key === 'ArrowLeft') {
-    const start = target.selectionStart ?? 0;
-    const end = target.selectionEnd ?? 0;
-    if (start === 0 && end === 0) {
-      e.preventDefault();
-      if (idx > 0) {
-        focusInputSlot(slots[idx - 1], true);
-      } else {
-        exitInlineEq(editorEl, eqEl, 'before');
-      }
-      return { handled: true, mutated: false };
-    }
-  }
-
-  if (e.key === 'Backspace' && target.value.length === 0) {
-    const allEmpty = slots.every((sl) => !sl.value.trim());
-    if (allEmpty) {
-      e.preventDefault();
-      const parent = eqEl.parentNode;
-      const prev = eqEl.previousSibling;
-      eqEl.remove();
-      editorEl.focus({ preventScroll: true });
-      const sel = window.getSelection();
-      if (sel) {
-        const r = editorEl.ownerDocument.createRange();
-        if (prev && prev.nodeType === 3) {
-          r.setStart(prev, prev.nodeValue.length);
-        } else if (parent) {
-          r.selectNodeContents(parent);
-        }
-        r.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(r);
-      }
-      return { handled: true, mutated: true };
-    }
-  }
-
-  return { handled: false, mutated: false };
+  return handleRecursiveMathKeyDown(editorEl, e, exitInlineEq);
 }

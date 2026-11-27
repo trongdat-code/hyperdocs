@@ -10,6 +10,7 @@ import {
   Eye,
   Sparkles,
   CheckCircle2,
+  Check,
 } from 'lucide-react';
 import {
   cleanPdfTitle,
@@ -61,6 +62,7 @@ export function detectLinkType(rawUrl) {
 export default function ImportModal({
   isOpen,
   folders,
+  customTags = [],
   onClose,
   onCreateDocument,
   onNotify,
@@ -79,7 +81,6 @@ export default function ImportModal({
   const [selectedFolderIds, setSelectedFolderIds] = useState([]);
   const [tags, setTags] = useState([]);
   const [tagsCustomized, setTagsCustomized] = useState(false);
-  const [tagDraft, setTagDraft] = useState('');
   const [autoSanitizeKatex, setAutoSanitizeKatex] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -95,7 +96,6 @@ export default function ImportModal({
     setSelectedFolderIds([]);
     setTags([]);
     setTagsCustomized(false);
-    setTagDraft('');
     setAutoSanitizeKatex(true);
     setIsSubmitting(false);
     setStatusMessage('');
@@ -116,17 +116,17 @@ export default function ImportModal({
     }
   }, [linkUrl]);
 
-  // Keep default tag synced with detected/selected link type unless user edited tags
+  // Keep default tag synced with detected/selected link type (strictly from registered tags) unless user edited tags
   useEffect(() => {
     if (tagsCustomized) return;
     if (effectiveType === 'gdoc') {
-      setTags(['Google Docs']);
+      setTags(customTags.includes('Google Docs') ? ['Google Docs'] : []);
     } else if (effectiveType === 'pdf') {
-      setTags(['PDF']);
+      setTags(customTags.includes('PDF') ? ['PDF'] : []);
     } else {
       setTags([]);
     }
-  }, [effectiveType, tagsCustomized]);
+  }, [effectiveType, tagsCustomized, customTags]);
 
   if (!isOpen || typeof document === 'undefined') return null;
 
@@ -153,32 +153,20 @@ export default function ImportModal({
     );
   };
 
-  const addTag = () => {
-    const clean = tagDraft.trim();
-    if (!clean) return;
+  const toggleTag = (tag) => {
+    setTagsCustomized(true);
+    if (tags.includes(tag)) {
+      setTags((prev) => prev.filter((x) => x !== tag));
+      return;
+    }
     if (tags.length >= MAX_TAGS) {
       onNotify(t.maxTagsReached, 'warning');
       return;
     }
-    if (!tags.includes(clean)) {
-      setTags([...tags, clean]);
-      setTagsCustomized(true);
-    }
-    setTagDraft('');
+    setTags((prev) => [...prev, tag]);
   };
 
-  const removeTag = (tagToRemove) => {
-    setTags((prev) => prev.filter((x) => x !== tagToRemove));
-    setTagsCustomized(true);
-  };
-
-  const getFinalTags = () => {
-    const next = [...tags];
-    if (tagDraft.trim() && next.length < MAX_TAGS && !next.includes(tagDraft.trim())) {
-      next.push(tagDraft.trim());
-    }
-    return next.slice(0, MAX_TAGS);
-  };
+  const getFinalTags = () => tags.slice(0, MAX_TAGS);
 
   const handleSubmitGdoc = async (trimmedUrl) => {
     setIsSubmitting(true);
@@ -642,59 +630,42 @@ export default function ImportModal({
             </div>
           )}
 
-          {/* Optional Tags (Max 3) */}
+          {/* Optional Tags (Strict Selection from Master Tag Registry, Max 3) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
                 {t.editTags} ({tags.length}/{MAX_TAGS})
               </label>
-              <span className="text-[12px] text-[#9B9A97]">{t.maxTagsHint}</span>
+              <span className="text-[12px] text-[#9B9A97]">{t.selectExistingTagsHint}</span>
             </div>
 
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[12.5px] font-medium"
-                  >
-                    {tag}
+            {customTags.length === 0 ? (
+              <p className="text-[12.5px] text-[#6B6A66] dark:text-[#9B9A97] italic py-1.5">
+                {t.noTagsCreatedYet}
+              </p>
+            ) : (
+              <div className="max-h-32 overflow-y-auto flex flex-wrap gap-1.5 p-2 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FBFBFA] dark:bg-[#191919]">
+                {customTags.map((tag) => {
+                  const selected = tags.includes(tag);
+                  return (
                     <button
+                      key={tag}
                       type="button"
-                      onClick={() => removeTag(tag)}
-                      className="hover:text-rose-500 cursor-pointer"
+                      disabled={isSubmitting}
+                      onClick={() => toggleTag(tag)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[12.5px] font-medium cursor-pointer transition-colors ${
+                        selected
+                          ? 'border-[#2563EB]/45 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/45 dark:bg-[#2563EB]/[0.18] dark:text-[#60A5FA]'
+                          : 'border-[#E4E4E7] dark:border-[#323232] bg-[#FFFFFF] dark:bg-[#242424] text-[#52525B] dark:text-[#A1A1AA] hover:border-[#A1A1AA]'
+                      }`}
                     >
-                      <X className="w-3 h-3" />
+                      {selected && <Check className="w-3 h-3 shrink-0" />}
+                      <span>{tag}</span>
                     </button>
-                  </span>
-                ))}
+                  );
+                })}
               </div>
             )}
-
-            <div className="flex gap-2">
-              <input
-                type="text"
-                disabled={tags.length >= MAX_TAGS}
-                value={tagDraft}
-                onChange={(e) => setTagDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addTag();
-                  }
-                }}
-                placeholder={tags.length >= MAX_TAGS ? t.maxTagsReached : t.addTagPlaceholder}
-                className="flex-1 min-h-[38px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[13px] disabled:opacity-50"
-              />
-              <button
-                type="button"
-                disabled={tags.length >= MAX_TAGS || !tagDraft.trim()}
-                onClick={addTag}
-                className="px-3.5 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] hover:bg-[#E8E8E5] dark:hover:bg-[#3C3C3C] font-semibold text-[14px] disabled:opacity-40 cursor-pointer transition-colors duration-150"
-              >
-                +
-              </button>
-            </div>
           </div>
 
           {/* Auto-format Math/Chemistry KaTeX Checkbox */}

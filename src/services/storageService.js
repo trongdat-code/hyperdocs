@@ -11,16 +11,59 @@ const STORE_NAME = 'collections';
 const LOCAL_PREFIX = 'hyperdocs_v1_';
 export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
+export const SYSTEM_TAGS = ['Notes', 'PDF'];
+
 export const KEYS = {
   TASKS: 'tasks',
   DOCUMENTS: 'documents',
   FOLDERS: 'folders',
+  CUSTOM_TAGS: 'custom_tags',
   FLASHCARDS: 'flashcards',
   QUIZZES: 'quizzes',
   SETTINGS: 'settings',
   SRS_STATS: 'srs_stats',
   POMODORO_STATS: 'pomodoro_stats',
 };
+
+export function isSystemTag(tag) {
+  const clean = String(tag || '').trim().toLowerCase();
+  return SYSTEM_TAGS.some((st) => st.toLowerCase() === clean);
+}
+
+/**
+ * Normalize the master tag registry (`customTags: string[]`), guaranteeing system tags
+ * (`Notes`, `PDF`) are always preserved and removing duplicates case-insensitively.
+ */
+export function normalizeTagRegistry(rawTags, fallbackDocs = [], fallbackFolders = []) {
+  const seen = new Set();
+  const result = [];
+
+  const pushTag = (raw) => {
+    const clean = String(raw || '').trim();
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(clean);
+  };
+
+  // Always preserve system tags first
+  SYSTEM_TAGS.forEach(pushTag);
+
+  if (Array.isArray(rawTags)) {
+    rawTags.forEach(pushTag);
+  } else {
+    // First-time migration from existing workspace: harvest existing document & folder tags
+    (Array.isArray(fallbackDocs) ? fallbackDocs : []).forEach((doc) => {
+      (doc?.tags || []).forEach(pushTag);
+    });
+    (Array.isArray(fallbackFolders) ? fallbackFolders : []).forEach((folder) => {
+      (folder?.tags || []).forEach(pushTag);
+    });
+  }
+
+  return result;
+}
 
 const DEFAULT_SETTINGS = {
   theme: 'light', // 'light' | 'dark'
@@ -312,6 +355,7 @@ export const storageService = {
       rawTasks,
       rawDocuments,
       folders,
+      rawCustomTags,
       flashcards,
       quizzes,
       settings,
@@ -321,6 +365,7 @@ export const storageService = {
       this.loadCollection(KEYS.TASKS, getStarterTasks),
       this.loadCollection(KEYS.DOCUMENTS, getStarterDocuments),
       this.loadCollection(KEYS.FOLDERS, getStarterFolders),
+      idbGet(KEYS.CUSTOM_TAGS).then((val) => (val !== undefined ? val : lsGet(KEYS.CUSTOM_TAGS))),
       this.loadCollection(KEYS.FLASHCARDS, getStarterFlashcards),
       this.loadCollection(KEYS.QUIZZES, []),
       this.loadCollection(KEYS.SETTINGS, () => ({ ...DEFAULT_SETTINGS })),
@@ -337,11 +382,18 @@ export const storageService = {
       ...doc,
       folderIds: Array.isArray(doc.folderIds) ? doc.folderIds : [],
     }));
+    const safeFolders = Array.isArray(folders) ? folders : [];
+
+    const customTags = normalizeTagRegistry(rawCustomTags, documents, safeFolders);
+    if (!Array.isArray(rawCustomTags) || rawCustomTags.length !== customTags.length) {
+      await this.saveCollection(KEYS.CUSTOM_TAGS, customTags);
+    }
 
     return {
       tasks: cleanedTasks,
       documents,
-      folders: Array.isArray(folders) ? folders : [],
+      folders: safeFolders,
+      customTags,
       flashcards,
       quizzes,
       settings: { ...DEFAULT_SETTINGS, ...settings },
@@ -372,6 +424,11 @@ export const storageService = {
       folderIds: Array.isArray(doc.folderIds) ? doc.folderIds : [],
     }));
     const folders = Array.isArray(source.folders) ? source.folders : [];
+    const customTags = normalizeTagRegistry(
+      Array.isArray(source.customTags) ? source.customTags : undefined,
+      documents,
+      folders
+    );
     const flashcards = Array.isArray(source.flashcards) ? source.flashcards : [];
     const quizzes = Array.isArray(source.quizzes) ? source.quizzes : [];
     const srsStats = source.srsStats || { lastSession: null, totalReviewedAllTime: 0 };
@@ -385,6 +442,7 @@ export const storageService = {
       this.saveCollection(KEYS.TASKS, tasks),
       this.saveCollection(KEYS.DOCUMENTS, documents),
       this.saveCollection(KEYS.FOLDERS, folders),
+      this.saveCollection(KEYS.CUSTOM_TAGS, customTags),
       this.saveCollection(KEYS.FLASHCARDS, flashcards),
       this.saveCollection(KEYS.QUIZZES, quizzes),
       this.saveCollection(KEYS.SRS_STATS, srsStats),
@@ -392,6 +450,16 @@ export const storageService = {
       this.saveSettings(settings),
     ]);
 
-    return { tasks, documents, folders, flashcards, quizzes, settings, srsStats, pomodoroStats };
+    return {
+      tasks,
+      documents,
+      folders,
+      customTags,
+      flashcards,
+      quizzes,
+      settings,
+      srsStats,
+      pomodoroStats,
+    };
   },
 };

@@ -27,12 +27,16 @@ import FocusMode from './components/left/FocusMode';
 import FlashcardSRS from './components/left/FlashcardSRS';
 import DocumentList from './components/center/DocumentList';
 import DocumentViewer from './components/center/DocumentViewer';
+import TagManagerModal from './components/center/TagManagerModal';
 import QuizGenerator from './components/right/QuizGenerator';
 import SettingsPanel from './components/right/SettingsPanel';
 import AuthModal from './components/auth/AuthModal';
 import CloudSyncWidget from './components/auth/CloudSyncWidget';
 import {
   KEYS,
+  SYSTEM_TAGS,
+  isSystemTag,
+  normalizeTagRegistry,
   purgeExpiredCompletedTasks,
   storageService,
 } from './services/storageService';
@@ -104,6 +108,9 @@ export default function App() {
   const [tasks, setTasks] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [folders, setFolders] = useState([]);
+  const [customTags, setCustomTags] = useState(() => [...SYSTEM_TAGS]);
+  const [customTagsUpdatedAt, setCustomTagsUpdatedAt] = useState(0);
+  const [tagManagerOpen, setTagManagerOpen] = useState(false);
   const [flashcards, setFlashcards] = useState([]);
   const [quizzes, setQuizzes] = useState([]);
   const [srsStats, setSrsStats] = useState({ lastSession: null, totalReviewedAllTime: 0 });
@@ -304,6 +311,9 @@ export default function App() {
       setTasks(data.tasks);
       setDocuments(data.documents);
       setFolders(data.folders);
+      setCustomTags(
+        normalizeTagRegistry(data.customTags, data.documents, data.folders)
+      );
       setFlashcards(data.flashcards);
       setQuizzes(data.quizzes);
       setSettings(data.settings);
@@ -328,18 +338,37 @@ export default function App() {
     latestSnapshotRef.current = {
       documents,
       folders,
+      customTags,
+      customTagsUpdatedAt,
       tasks,
       flashcards,
       quizzes,
       srsStats,
       pomodoroStats,
     };
-  }, [documents, folders, tasks, flashcards, quizzes, srsStats, pomodoroStats]);
+  }, [
+    documents,
+    folders,
+    customTags,
+    customTagsUpdatedAt,
+    tasks,
+    flashcards,
+    quizzes,
+    srsStats,
+    pomodoroStats,
+  ]);
 
   const persistMergedSnapshotLocally = useCallback(async (merged) => {
     suppressAutoPushRef.current = true;
+    const normalizedTags = normalizeTagRegistry(
+      merged.customTags,
+      merged.documents,
+      merged.folders
+    );
     setDocuments(merged.documents);
     setFolders(merged.folders);
+    setCustomTags(normalizedTags);
+    setCustomTagsUpdatedAt(Number(merged.customTagsUpdatedAt || 0));
     setTasks(merged.tasks);
     setFlashcards(merged.flashcards);
     setQuizzes(merged.quizzes);
@@ -349,6 +378,7 @@ export default function App() {
     await Promise.all([
       storageService.saveCollection(KEYS.DOCUMENTS, merged.documents),
       storageService.saveCollection(KEYS.FOLDERS, merged.folders),
+      storageService.saveCollection(KEYS.CUSTOM_TAGS, normalizedTags),
       storageService.saveCollection(KEYS.TASKS, merged.tasks),
       storageService.saveCollection(KEYS.FLASHCARDS, merged.flashcards),
       storageService.saveCollection(KEYS.QUIZZES, merged.quizzes),
@@ -476,7 +506,19 @@ export default function App() {
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
-  }, [hydrated, cloudUser, documents, folders, tasks, flashcards, quizzes, srsStats, pomodoroStats]);
+  }, [
+    hydrated,
+    cloudUser,
+    documents,
+    folders,
+    customTags,
+    customTagsUpdatedAt,
+    tasks,
+    flashcards,
+    quizzes,
+    srsStats,
+    pomodoroStats,
+  ]);
 
   const handleManualSyncNow = async () => {
     if (!cloudUser || !isSupabaseConfigured || !latestSnapshotRef.current) return;
@@ -634,6 +676,114 @@ export default function App() {
       return next;
     });
   };
+
+  // ---------- Centralized Master Tag Registry Handlers ("Tạo nhãn" / "Create Tag") ----------
+  const handleCreateTag = useCallback(
+    (rawName) => {
+      const clean = String(rawName || '').trim();
+      if (!clean) return;
+      setCustomTags((prev) => {
+        if (prev.some((tg) => tg.toLowerCase() === clean.toLowerCase())) {
+          return prev;
+        }
+        const next = normalizeTagRegistry([...prev, clean]);
+        storageService.saveCollection(KEYS.CUSTOM_TAGS, next);
+        return next;
+      });
+      setCustomTagsUpdatedAt(Date.now());
+      notify(t.tagCreatedToast(clean), 'success');
+    },
+    [notify, t]
+  );
+
+  const handleRenameTag = useCallback(
+    (oldName, newRawName) => {
+      const clean = String(newRawName || '').trim();
+      if (!oldName || !clean || oldName === clean || isSystemTag(oldName)) return;
+
+      const now = Date.now();
+      setCustomTags((prev) => {
+        if (prev.some((tg) => tg !== oldName && tg.toLowerCase() === clean.toLowerCase())) {
+          return prev;
+        }
+        const next = normalizeTagRegistry(prev.map((tg) => (tg === oldName ? clean : tg)));
+        storageService.saveCollection(KEYS.CUSTOM_TAGS, next);
+        return next;
+      });
+      setCustomTagsUpdatedAt(now);
+
+      // Propagate renamed tag cleanly across documents & folders
+      setDocuments((prev) => {
+        let changed = false;
+        const next = prev.map((doc) => {
+          if (!Array.isArray(doc.tags) || !doc.tags.includes(oldName)) return doc;
+          changed = true;
+          const replaced = Array.from(
+            new Set(doc.tags.map((tg) => (tg === oldName ? clean : tg)))
+          );
+          return { ...doc, tags: replaced, updatedAt: now };
+        });
+        if (changed) storageService.saveCollection(KEYS.DOCUMENTS, next);
+        return changed ? next : prev;
+      });
+
+      setFolders((prev) => {
+        let changed = false;
+        const next = prev.map((folder) => {
+          if (!Array.isArray(folder.tags) || !folder.tags.includes(oldName)) return folder;
+          changed = true;
+          const replaced = Array.from(
+            new Set(folder.tags.map((tg) => (tg === oldName ? clean : tg)))
+          );
+          return { ...folder, tags: replaced, updatedAt: now };
+        });
+        if (changed) storageService.saveCollection(KEYS.FOLDERS, next);
+        return changed ? next : prev;
+      });
+
+      notify(t.tagRenamedToast(clean), 'success');
+    },
+    [notify, t]
+  );
+
+  const handleDeleteTag = useCallback(
+    (tagName) => {
+      if (!tagName || isSystemTag(tagName)) return;
+      const now = Date.now();
+      setCustomTags((prev) => {
+        const next = normalizeTagRegistry(prev.filter((tg) => tg !== tagName));
+        storageService.saveCollection(KEYS.CUSTOM_TAGS, next);
+        return next;
+      });
+      setCustomTagsUpdatedAt(now);
+
+      // Remove deleted tag from documents & folders
+      setDocuments((prev) => {
+        let changed = false;
+        const next = prev.map((doc) => {
+          if (!Array.isArray(doc.tags) || !doc.tags.includes(tagName)) return doc;
+          changed = true;
+          return { ...doc, tags: doc.tags.filter((tg) => tg !== tagName), updatedAt: now };
+        });
+        if (changed) storageService.saveCollection(KEYS.DOCUMENTS, next);
+        return changed ? next : prev;
+      });
+
+      setFolders((prev) => {
+        let changed = false;
+        const next = prev.map((folder) => {
+          if (!Array.isArray(folder.tags) || !folder.tags.includes(tagName)) return folder;
+          changed = true;
+          return { ...folder, tags: folder.tags.filter((tg) => tg !== tagName), updatedAt: now };
+        });
+        if (changed) storageService.saveCollection(KEYS.FOLDERS, next);
+        return changed ? next : prev;
+      });
+
+      notify(t.tagDeletedToast(tagName), 'info');
+    },
+    [notify, t]
+  );
 
   // ---------- Document Handlers ----------
   const handleOpenDocument = (docId, editMode = false) => {
@@ -806,6 +956,10 @@ export default function App() {
       setTasks(restored.tasks);
       setDocuments(restored.documents);
       setFolders(restored.folders);
+      setCustomTags(
+        normalizeTagRegistry(restored.customTags, restored.documents, restored.folders)
+      );
+      setCustomTagsUpdatedAt(Date.now());
       setFlashcards(restored.flashcards);
       setQuizzes(restored.quizzes);
       setSettings(restored.settings);
@@ -871,17 +1025,6 @@ export default function App() {
         }),
     [folders, sidebarSortedDocs, globalSearchQuery]
   );
-
-  const allDocumentTags = useMemo(() => {
-    const tagSet = new Set();
-    documents.forEach((doc) => {
-      (doc.tags || []).forEach((tag) => {
-        const clean = String(tag || '').trim();
-        if (clean) tagSet.add(clean);
-      });
-    });
-    return Array.from(tagSet).sort((a, b) => a.localeCompare(b));
-  }, [documents]);
 
   const renderSidebarDocItem = (doc, keyPrefix) => {
     const isActiveDoc = activeView === 'documents' && openDocId === doc.id;
@@ -1411,6 +1554,8 @@ export default function App() {
               (openDocument ? (
                 <DocumentViewer
                   document={openDocument}
+                  customTags={customTags}
+                  onOpenTagManager={() => setTagManagerOpen(true)}
                   initialEditMode={openDocInEditMode}
                   onBack={() => setOpenDocId(null)}
                   onUpdateDocument={handleUpdateDocument}
@@ -1423,6 +1568,8 @@ export default function App() {
                 <DocumentList
                   documents={documents}
                   folders={folders}
+                  customTags={customTags}
+                  onOpenTagManager={() => setTagManagerOpen(true)}
                   selectedDocId={activeContextDocument?.id || null}
                   searchQuery={globalSearchQuery}
                   onSearchQueryChange={setGlobalSearchQuery}
@@ -1578,37 +1725,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* Quick Tag Filter Pills */}
-            {allDocumentTags.length > 0 && (
-              <div className="px-4 py-2.5 border-b border-[#E8E8E5] dark:border-[#323232] bg-[#FBFBFA] dark:bg-[#202020] flex items-center gap-1.5 overflow-x-auto">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#8E8D8A] dark:text-[#888783] shrink-0 mr-0.5">
-                  {t.quickTagsLabel}:
-                </span>
-                {allDocumentTags.slice(0, 12).map((tag) => {
-                  const isTagActive =
-                    normalizeSearchText(globalSearchQuery) === normalizeSearchText(tag);
-                  return (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => {
-                        setGlobalSearchQuery(isTagActive ? '' : tag);
-                        searchPopoverInputRef.current?.focus();
-                      }}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] font-medium shrink-0 cursor-pointer transition-colors ${
-                        isTagActive
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-[#EFEFED] dark:bg-[#2E2E2E] text-[#555552] dark:text-[#C5C4C0] hover:bg-[#E5E5E1] dark:hover:bg-[#3A3A3A]'
-                      }`}
-                    >
-                      <Tag className="w-2.5 h-2.5" />
-                      <span>{tag}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
             {/* Filtered Document Results (by Title & Tags) */}
             <div className="max-h-[52vh] overflow-y-auto p-2 space-y-1">
               {sidebarFilteredDocs.length === 0 ? (
@@ -1731,6 +1847,18 @@ export default function App() {
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
+        t={t}
+      />
+
+      {/* Centralized Tag Manager Modal ("Tạo nhãn" / "Create Tag") */}
+      <TagManagerModal
+        isOpen={tagManagerOpen}
+        onClose={() => setTagManagerOpen(false)}
+        customTags={customTags}
+        documents={documents}
+        onCreateTag={handleCreateTag}
+        onRenameTag={handleRenameTag}
+        onDeleteTag={handleDeleteTag}
         t={t}
       />
 

@@ -50,6 +50,8 @@ const ALL_DOCS_EXPANDED_KEY = 'hyperdocs_all_docs_expanded';
 export default function DocumentList({
   documents,
   folders,
+  customTags = [],
+  onOpenTagManager,
   selectedDocId,
   searchQuery: controlledSearchQuery,
   onSearchQueryChange,
@@ -101,7 +103,6 @@ export default function DocumentList({
     });
   };
 
-  const [activeTagFilter, setActiveTagFilter] = useState('');
   const [expandedFolderIds, setExpandedFolderIds] = useState(() =>
     folders.length > 0 ? [folders[0].id] : []
   );
@@ -110,14 +111,12 @@ export default function DocumentList({
   const [editingMetaDoc, setEditingMetaDoc] = useState(null);
   const [metaTitle, setMetaTitle] = useState('');
   const [metaTags, setMetaTags] = useState([]);
-  const [tagDraft, setTagDraft] = useState('');
 
   // Folder Create / Edit modal
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const [editingFolder, setEditingFolder] = useState(null);
   const [folderNameDraft, setFolderNameDraft] = useState('');
   const [folderTagsDraft, setFolderTagsDraft] = useState([]);
-  const [folderTagInput, setFolderTagInput] = useState('');
 
   // Many-to-many "Assign to Folders" modal for a document
   const [assigningDocId, setAssigningDocId] = useState(null);
@@ -132,8 +131,7 @@ export default function DocumentList({
   const [isScanning, setIsScanning] = useState(false);
   const [scannedMarkdown, setScannedMarkdown] = useState('');
   const [scannedTitle, setScannedTitle] = useState('');
-  const [scannedTags, setScannedTags] = useState(['A4 Scan']);
-  const [scannedTagDraft, setScannedTagDraft] = useState('');
+  const [scannedTags, setScannedTags] = useState([]);
 
   // Unified Import Link Modal state (Google Docs + PDF / Google Drive URL auto-detection)
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -147,13 +145,6 @@ export default function DocumentList({
   const uploadInputRef = useRef(null);
   const scanInputRef = useRef(null);
 
-  const allTags = useMemo(() => {
-    const set = new Set();
-    documents.forEach((doc) => (doc.tags || []).forEach((tag) => set.add(tag)));
-    folders.forEach((folder) => (folder.tags || []).forEach((tag) => set.add(tag)));
-    return Array.from(set).sort();
-  }, [documents, folders]);
-
   const sortedDocs = useMemo(() => {
     return [...documents].sort(
       (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
@@ -163,26 +154,17 @@ export default function DocumentList({
   const hasActiveSearch = Boolean(normalizeSearchText(searchQuery));
 
   const filteredDocs = useMemo(() => {
-    return sortedDocs.filter((doc) => {
-      const matchesTag = !activeTagFilter || (doc.tags || []).includes(activeTagFilter);
-      if (!matchesTag) return false;
-      return doesDocMatchQuery(doc, searchQuery);
-    });
-  }, [sortedDocs, searchQuery, activeTagFilter]);
+    return sortedDocs.filter((doc) => doesDocMatchQuery(doc, searchQuery));
+  }, [sortedDocs, searchQuery]);
 
   const filteredFolders = useMemo(() => {
     return [...folders]
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
       .filter((folder) => {
         const folderDocs = sortedDocs.filter((d) => (d.folderIds || []).includes(folder.id));
-        const matchesTag =
-          !activeTagFilter ||
-          (folder.tags || []).includes(activeTagFilter) ||
-          folderDocs.some((d) => (d.tags || []).includes(activeTagFilter));
-        if (!matchesTag) return false;
         return doesFolderMatchQuery(folder, folderDocs, searchQuery);
       });
-  }, [folders, sortedDocs, searchQuery, activeTagFilter]);
+  }, [folders, sortedDocs, searchQuery]);
 
   const assigningDoc = useMemo(
     () => documents.find((d) => d.id === assigningDocId) || null,
@@ -204,17 +186,16 @@ export default function DocumentList({
     });
   };
 
-  const addTagToList = (draft, list, setList, setDraft) => {
-    const clean = draft.trim();
-    if (!clean) return;
+  const toggleTagInList = (tag, list, setList) => {
+    if (list.includes(tag)) {
+      setList(list.filter((x) => x !== tag));
+      return;
+    }
     if (list.length >= MAX_TAGS) {
       onNotify(t.maxTagsReached, 'warning');
       return;
     }
-    if (!list.includes(clean)) {
-      setList([...list, clean]);
-    }
-    setDraft('');
+    setList([...list, tag]);
   };
 
   // Unified processor for uploaded or dropped files (.pdf, .docx, .md, .txt)
@@ -396,7 +377,6 @@ export default function DocumentList({
     setEditingFolder(null);
     setFolderNameDraft('');
     setFolderTagsDraft([]);
-    setFolderTagInput('');
     setFolderModalOpen(true);
   };
 
@@ -405,7 +385,6 @@ export default function DocumentList({
     setEditingFolder(folder);
     setFolderNameDraft(folder.name || '');
     setFolderTagsDraft([...(folder.tags || [])].slice(0, MAX_TAGS));
-    setFolderTagInput('');
     setFolderModalOpen(true);
   };
 
@@ -414,13 +393,6 @@ export default function DocumentList({
     const cleanName = folderNameDraft.trim();
     if (!cleanName) return;
     const nextTags = [...folderTagsDraft];
-    if (
-      folderTagInput.trim() &&
-      nextTags.length < MAX_TAGS &&
-      !nextTags.includes(folderTagInput.trim())
-    ) {
-      nextTags.push(folderTagInput.trim());
-    }
 
     if (editingFolder) {
       onUpdateFolder({
@@ -447,20 +419,15 @@ export default function DocumentList({
     setEditingMetaDoc(doc);
     setMetaTitle(doc.title || '');
     setMetaTags([...(doc.tags || [])].slice(0, MAX_TAGS));
-    setTagDraft('');
   };
 
   const handleSaveMeta = (e) => {
     e.preventDefault();
     if (!editingMetaDoc) return;
-    const nextTags = [...metaTags];
-    if (tagDraft.trim() && nextTags.length < MAX_TAGS && !nextTags.includes(tagDraft.trim())) {
-      nextTags.push(tagDraft.trim());
-    }
     onUpdateDocument({
       ...editingMetaDoc,
       title: metaTitle.trim() || t.untitledDoc,
-      tags: nextTags.slice(0, MAX_TAGS),
+      tags: metaTags.slice(0, MAX_TAGS),
       updatedAt: Date.now(),
     });
     setEditingMetaDoc(null);
@@ -475,8 +442,7 @@ export default function DocumentList({
     setScanCropModalOpen(false);
     setScannedMarkdown('');
     setScannedTitle('');
-    setScannedTags(['A4 Scan']);
-    setScannedTagDraft('');
+    setScannedTags([]);
     setShowScanner(true);
   };
 
@@ -610,8 +576,7 @@ export default function DocumentList({
 
               <div className="flex flex-wrap items-center gap-1">
                 {(doc.tags || []).slice(0, MAX_TAGS).map((tag) => {
-                  const isTagMatch =
-                    doesTagMatchQuery(tag, searchQuery) || activeTagFilter === tag;
+                  const isTagMatch = doesTagMatchQuery(tag, searchQuery);
                   return (
                     <span
                       key={tag}
@@ -794,7 +759,7 @@ export default function DocumentList({
             </div>
           )}
 
-          {/* Search & Tag Filter Strip */}
+          {/* Search Bar + Single Centralized "Tạo nhãn" / "Create Tag" Button */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-[#6B6A66] dark:text-[#9B9A97] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -829,26 +794,16 @@ export default function DocumentList({
               )}
             </div>
 
-            {allTags.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                {allTags.map((tag) => {
-                  const active = activeTagFilter === tag;
-                  return (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => setActiveTagFilter(active ? '' : tag)}
-                      className={`min-h-[32px] px-2.5 rounded-lg text-[12.5px] font-medium whitespace-nowrap border cursor-pointer transition-colors duration-150 ${
-                        active
-                          ? 'bg-[#262624] dark:bg-[#ECECEA] text-white dark:text-[#191919] border-transparent'
-                          : 'bg-[#FBFBFA] dark:bg-[#202020] border-[#E8E8E5] dark:border-[#2F2F2F] text-[#555552] dark:text-[#B5B4B0] hover:bg-[#F3F3F1] dark:hover:bg-[#262626]'
-                      }`}
-                    >
-                      #{tag}
-                    </button>
-                  );
-                })}
-              </div>
+            {onOpenTagManager && (
+              <button
+                type="button"
+                onClick={onOpenTagManager}
+                title={t.tagManagerTitle}
+                className="min-h-[38px] px-3.5 rounded-lg border border-[#D4D4D8] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#18181B] hover:bg-[#F4F4F5] dark:hover:bg-[#27272A] text-[#111111] dark:text-[#F4F4F5] text-[13px] font-medium inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer transition-colors duration-150"
+              >
+                <Tag className="w-3.5 h-3.5 text-[#52525B] dark:text-[#A1A1AA]" />
+                <span>{t.createTagBtn}</span>
+              </button>
             )}
           </div>
         </div>
@@ -870,16 +825,14 @@ export default function DocumentList({
                   const allFolderDocs = sortedDocs.filter((d) =>
                     (d.folderIds || []).includes(folder.id)
                   );
-                  const matchingFolderDocs = allFolderDocs.filter((d) => {
-                    const matchesTag = !activeTagFilter || (d.tags || []).includes(activeTagFilter);
-                    return matchesTag && doesDocMatchQuery(d, searchQuery);
-                  });
-                  const folderDocs =
-                    hasActiveSearch || activeTagFilter
-                      ? matchingFolderDocs.length > 0
-                        ? matchingFolderDocs
-                        : allFolderDocs
-                      : allFolderDocs;
+                  const matchingFolderDocs = allFolderDocs.filter((d) =>
+                    doesDocMatchQuery(d, searchQuery)
+                  );
+                  const folderDocs = hasActiveSearch
+                    ? matchingFolderDocs.length > 0
+                      ? matchingFolderDocs
+                      : allFolderDocs
+                    : allFolderDocs;
 
                   return (
                     <div
@@ -940,8 +893,7 @@ export default function DocumentList({
                           {/* Folder Tags (max 3) */}
                           <div className="hidden sm:flex flex-wrap items-center gap-1 ml-1">
                             {(folder.tags || []).slice(0, MAX_TAGS).map((tag) => {
-                              const isTagMatch =
-                                doesTagMatchQuery(tag, searchQuery) || activeTagFilter === tag;
+                              const isTagMatch = doesTagMatchQuery(tag, searchQuery);
                               return (
                                 <span
                                   key={tag}
@@ -1120,71 +1072,37 @@ export default function DocumentList({
                     <label className="text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
                       {t.editTags} ({folderTagsDraft.length}/{MAX_TAGS})
                     </label>
-                    <span className="text-[12px] text-[#9B9A97]">{t.maxTagsHint}</span>
+                    <span className="text-[12px] text-[#9B9A97]">{t.selectExistingTagsHint}</span>
                   </div>
 
-                  {folderTagsDraft.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {folderTagsDraft.map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium"
-                        >
-                          {tag}
+                  {customTags.length === 0 ? (
+                    <p className="text-[12.5px] text-[#6B6A66] dark:text-[#9B9A97] italic py-1.5">
+                      {t.noTagsCreatedYet}
+                    </p>
+                  ) : (
+                    <div className="max-h-36 overflow-y-auto flex flex-wrap gap-1.5 p-2 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FBFBFA] dark:bg-[#191919]">
+                      {customTags.map((tag) => {
+                        const selected = folderTagsDraft.includes(tag);
+                        return (
                           <button
+                            key={tag}
                             type="button"
                             onClick={() =>
-                              setFolderTagsDraft(folderTagsDraft.filter((x) => x !== tag))
+                              toggleTagInList(tag, folderTagsDraft, setFolderTagsDraft)
                             }
-                            className="hover:text-rose-500 cursor-pointer"
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[12.5px] font-medium cursor-pointer transition-colors ${
+                              selected
+                                ? 'border-[#2563EB]/45 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/45 dark:bg-[#2563EB]/[0.18] dark:text-[#60A5FA]'
+                                : 'border-[#E4E4E7] dark:border-[#323232] bg-[#FFFFFF] dark:bg-[#242424] text-[#52525B] dark:text-[#A1A1AA] hover:border-[#A1A1AA]'
+                            }`}
                           >
-                            <X className="w-3 h-3" />
+                            {selected && <Check className="w-3 h-3 shrink-0" />}
+                            <span>{tag}</span>
                           </button>
-                        </span>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
-
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      disabled={folderTagsDraft.length >= MAX_TAGS}
-                      value={folderTagInput}
-                      onChange={(e) => setFolderTagInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          addTagToList(
-                            folderTagInput,
-                            folderTagsDraft,
-                            setFolderTagsDraft,
-                            setFolderTagInput
-                          );
-                        }
-                      }}
-                      placeholder={
-                        folderTagsDraft.length >= MAX_TAGS
-                          ? t.maxTagsReached
-                          : t.addTagPlaceholder
-                      }
-                      className="flex-1 min-h-[40px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[13px] disabled:opacity-50"
-                    />
-                    <button
-                      type="button"
-                      disabled={folderTagsDraft.length >= MAX_TAGS || !folderTagInput.trim()}
-                      onClick={() =>
-                        addTagToList(
-                          folderTagInput,
-                          folderTagsDraft,
-                          setFolderTagsDraft,
-                          setFolderTagInput
-                        )
-                      }
-                      className="px-3.5 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] hover:bg-[#E8E8E5] dark:hover:bg-[#3C3C3C] text-[14px] font-semibold disabled:opacity-40 cursor-pointer transition-colors duration-150"
-                    >
-                      +
-                    </button>
-                  </div>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
@@ -1348,53 +1266,35 @@ export default function DocumentList({
                     <label className="text-[13px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
                       {t.editTags} ({metaTags.length}/{MAX_TAGS})
                     </label>
-                    <span className="text-[12px] text-[#9B9A97]">{t.maxTagsHint}</span>
+                    <span className="text-[12px] text-[#9B9A97]">{t.selectExistingTagsHint}</span>
                   </div>
 
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {metaTags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] text-[#262624] dark:text-[#ECECEA] text-[13px] font-medium"
-                      >
-                        {tag}
-                        <button
-                          type="button"
-                          onClick={() => setMetaTags(metaTags.filter((x) => x !== tag))}
-                          className="hover:text-rose-500 cursor-pointer"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      disabled={metaTags.length >= MAX_TAGS}
-                      value={tagDraft}
-                      onChange={(e) => setTagDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          addTagToList(tagDraft, metaTags, setMetaTags, setTagDraft);
-                        }
-                      }}
-                      placeholder={
-                        metaTags.length >= MAX_TAGS ? t.maxTagsReached : t.addTagPlaceholder
-                      }
-                      className="flex-1 min-h-[40px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[13px] disabled:opacity-50"
-                    />
-                    <button
-                      type="button"
-                      disabled={metaTags.length >= MAX_TAGS || !tagDraft.trim()}
-                      onClick={() => addTagToList(tagDraft, metaTags, setMetaTags, setTagDraft)}
-                      className="px-3.5 rounded-lg bg-[#F3F3F1] dark:bg-[#323232] hover:bg-[#E8E8E5] dark:hover:bg-[#3C3C3C] font-semibold text-[14px] disabled:opacity-40 cursor-pointer transition-colors duration-150"
-                    >
-                      +
-                    </button>
-                  </div>
+                  {customTags.length === 0 ? (
+                    <p className="text-[12.5px] text-[#6B6A66] dark:text-[#9B9A97] italic py-1.5">
+                      {t.noTagsCreatedYet}
+                    </p>
+                  ) : (
+                    <div className="max-h-40 overflow-y-auto flex flex-wrap gap-1.5 p-2 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FBFBFA] dark:bg-[#191919]">
+                      {customTags.map((tag) => {
+                        const selected = metaTags.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => toggleTagInList(tag, metaTags, setMetaTags)}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[12.5px] font-medium cursor-pointer transition-colors ${
+                              selected
+                                ? 'border-[#2563EB]/45 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/45 dark:bg-[#2563EB]/[0.18] dark:text-[#60A5FA]'
+                                : 'border-[#E4E4E7] dark:border-[#323232] bg-[#FFFFFF] dark:bg-[#242424] text-[#52525B] dark:text-[#A1A1AA] hover:border-[#A1A1AA]'
+                            }`}
+                          >
+                            {selected && <Check className="w-3 h-3 shrink-0" />}
+                            <span>{tag}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2">
@@ -1423,6 +1323,7 @@ export default function DocumentList({
       <ImportModal
         isOpen={importModalOpen}
         folders={folders}
+        customTags={customTags}
         onClose={() => setImportModalOpen(false)}
         onCreateDocument={onCreateDocument}
         onNotify={onNotify}
@@ -1560,45 +1461,36 @@ export default function DocumentList({
                           />
 
                           <div>
-                            <div className="flex flex-wrap gap-1.5 mb-1.5">
-                              {scannedTags.map((tag) => (
-                                <span
-                                  key={tag}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/12 text-indigo-700 dark:text-indigo-300 text-[12px] font-medium"
-                                >
-                                  {tag}
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[12px] font-medium text-[#6B6A66] dark:text-[#9B9A97]">
+                                {t.editTags} ({scannedTags.length}/{MAX_TAGS})
+                              </span>
+                              <span className="text-[11px] text-[#9B9A97]">
+                                {t.selectExistingTagsHint}
+                              </span>
+                            </div>
+                            <div className="max-h-24 overflow-y-auto flex flex-wrap gap-1.5 p-2 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FBFBFA] dark:bg-[#191919]">
+                              {customTags.map((tag) => {
+                                const selected = scannedTags.includes(tag);
+                                return (
                                   <button
+                                    key={tag}
                                     type="button"
                                     onClick={() =>
-                                      setScannedTags(scannedTags.filter((x) => x !== tag))
+                                      toggleTagInList(tag, scannedTags, setScannedTags)
                                     }
-                                    className="cursor-pointer hover:text-rose-500"
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[12px] font-medium cursor-pointer transition-colors ${
+                                      selected
+                                        ? 'border-[#2563EB]/45 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/45 dark:bg-[#2563EB]/[0.18] dark:text-[#60A5FA]'
+                                        : 'border-[#E4E4E7] dark:border-[#323232] bg-[#FFFFFF] dark:bg-[#242424] text-[#52525B] dark:text-[#A1A1AA]'
+                                    }`}
                                   >
-                                    <X className="w-3 h-3" />
+                                    {selected && <Check className="w-3 h-3 shrink-0" />}
+                                    <span>{tag}</span>
                                   </button>
-                                </span>
-                              ))}
+                                );
+                              })}
                             </div>
-                            {scannedTags.length < MAX_TAGS && (
-                              <input
-                                type="text"
-                                value={scannedTagDraft}
-                                onChange={(e) => setScannedTagDraft(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    addTagToList(
-                                      scannedTagDraft,
-                                      scannedTags,
-                                      setScannedTags,
-                                      setScannedTagDraft
-                                    );
-                                  }
-                                }}
-                                placeholder={`${t.addTagPlaceholder} (${scannedTags.length}/${MAX_TAGS})`}
-                                className="w-full min-h-[36px] px-3 rounded-lg border border-[#E8E8E5] dark:border-[#363636] bg-[#FFFFFF] dark:bg-[#191919] text-[#262624] dark:text-[#ECECEA] text-[12px]"
-                              />
-                            )}
                           </div>
 
                           <div className="flex-1 max-h-[240px] overflow-y-auto rounded-xl border border-[#E8E8E5] dark:border-[#2F2F2F] bg-[#FBFBFA] dark:bg-[#191919] p-3.5">

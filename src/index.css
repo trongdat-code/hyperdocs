@@ -492,7 +492,7 @@
   background-color: rgba(99, 102, 241, 0.08);
 }
 
-/* Atomic Inline Interactive Formula Widgets (.inline-formula-node.hd-eq & native input.hd-slot) */
+/* Recursive Desmos-Style Inline Interactive Formula Widgets (.inline-formula-node.hd-eq) */
 .inline-formula-node {
   display: inline-flex;
   align-items: center;
@@ -506,28 +506,53 @@
   vertical-align: middle;
   white-space: nowrap;
   margin: 0 0.14em;
-  padding: 0.06em 0.16em;
-  border-radius: 5px;
+  padding: 0.08em 0.18em;
+  border-radius: 6px;
   font-family: KaTeX_Main, 'Times New Roman', serif;
   line-height: 1.2;
-  transition: background-color 140ms ease;
+  transition: background-color 140ms ease, box-shadow 140ms ease;
 }
 
 .hd-eq:focus-within {
-  background-color: rgba(37, 99, 235, 0.07);
+  background-color: rgba(37, 99, 235, 0.06);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.22);
 }
 
 .dark .hd-eq:focus-within {
-  background-color: rgba(96, 165, 250, 0.12);
+  background-color: rgba(96, 165, 250, 0.11);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.28);
 }
 
+.hd-eq-interactive {
+  display: inline-flex;
+  align-items: center;
+}
+
+.hd-eq-print-katex {
+  display: none;
+}
+
+.hd-math-slot {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  min-height: 1.25em;
+}
+
+.hd-node {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+input.hd-seg,
 input.hd-slot {
   display: inline-block;
   box-sizing: content-box;
-  min-width: 1.5ch;
-  max-width: 24ch;
-  height: 1.35em;
-  padding: 0 0.16em;
+  min-width: 1.3ch;
+  max-width: 34ch;
+  height: 1.32em;
+  padding: 0 0.12em;
   margin: 0;
   border: 1px dashed transparent;
   border-radius: 3px;
@@ -540,45 +565,62 @@ input.hd-slot {
   outline: none;
   cursor: text;
   vertical-align: baseline;
-  transition: box-shadow 120ms ease, background-color 120ms ease, border-color 120ms ease;
+  transition: box-shadow 110ms ease, background-color 110ms ease, border-color 110ms ease;
 }
 
+input.hd-seg::placeholder,
 input.hd-slot::placeholder {
-  color: rgba(113, 113, 122, 0.65);
+  color: rgba(113, 113, 122, 0.62);
 }
 
-input.hd-slot:placeholder-shown {
-  border-color: rgba(37, 99, 235, 0.5);
+/* Empty standalone slot shows subtle Desmos-style clickable box */
+input.hd-seg[data-has-siblings='false']:not([data-root-seg='true']):placeholder-shown {
+  border-color: rgba(37, 99, 235, 0.45);
   background-color: rgba(37, 99, 235, 0.05);
 }
 
-.dark input.hd-slot:placeholder-shown {
-  border-color: rgba(96, 165, 250, 0.55);
+.dark input.hd-seg[data-has-siblings='false']:not([data-root-seg='true']):placeholder-shown {
+  border-color: rgba(96, 165, 250, 0.52);
   background-color: rgba(37, 99, 235, 0.14);
 }
 
+/* Boundary segments around nested child nodes stay sleek & zero-clutter when empty */
+input.hd-seg[data-has-siblings='true'],
+input.hd-seg[data-root-seg='true'] {
+  min-width: 0.3ch;
+  padding: 0 0.04em;
+}
+
+input.hd-seg[data-has-siblings='true']:focus,
+input.hd-seg[data-root-seg='true']:focus {
+  min-width: 0.65ch;
+  padding: 0 0.08em;
+}
+
 input.hd-slot-sm {
-  font-size: 0.78em;
+  font-size: 0.8em;
 }
 
 input.hd-slot-xs {
-  font-size: 0.68em;
+  font-size: 0.7em;
 }
 
 input.hd-slot-wide {
   min-width: 6.5ch;
-  max-width: 32ch;
+  max-width: 34ch;
   text-align: left;
-  padding: 0 0.25em;
+  padding: 0 0.22em;
 }
 
+input.hd-seg:focus,
 input.hd-slot:focus {
   border-style: solid;
   border-color: #2563eb;
-  box-shadow: 0 0 0 1.5px rgba(37, 99, 235, 0.35);
-  background-color: rgba(239, 246, 255, 0.9);
+  box-shadow: 0 0 0 1.5px rgba(37, 99, 235, 0.32);
+  background-color: rgba(239, 246, 255, 0.88);
 }
 
+.dark input.hd-seg:focus,
 .dark input.hd-slot:focus {
   border-style: solid;
   border-color: #60a5fa;
@@ -586,13 +628,26 @@ input.hd-slot:focus {
   background-color: rgba(37, 99, 235, 0.22);
 }
 
-/* Fraction */
+/* Fraction (supports infinite recursive nesting with subtle proportional scaling) */
 .hd-eq-frac {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   vertical-align: middle;
-  gap: 0.1em;
+  gap: 0.12em;
+  margin: 0 0.08em;
+}
+
+.hd-eq-frac .hd-eq-frac {
+  font-size: 0.9em;
+}
+
+.hd-eq-frac-num,
+.hd-eq-frac-den {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.16em;
 }
 
 .hd-eq-frac-bar {
@@ -603,23 +658,28 @@ input.hd-slot:focus {
   background-color: currentColor;
 }
 
-/* Square root & Nth root */
+/* Square root & Nth root (scalable SVG radical stretches cleanly around nested fractions) */
 .hd-eq-root {
   display: inline-flex;
   align-items: stretch;
   vertical-align: middle;
+  margin: 0 0.06em;
 }
 
 .hd-eq-root-idx {
+  display: inline-flex;
+  align-items: flex-start;
   align-self: flex-start;
-  margin-right: -0.25em;
-  margin-top: -0.15em;
+  margin-right: -0.22em;
+  margin-top: -0.18em;
+  font-size: 0.78em;
   z-index: 1;
 }
 
 .hd-eq-radical-svg {
   width: 0.82em;
-  height: 1.45em;
+  min-height: 1.4em;
+  height: auto;
   flex-shrink: 0;
   align-self: stretch;
 }
@@ -628,29 +688,36 @@ input.hd-slot:focus {
   display: inline-flex;
   align-items: center;
   border-top: 1.4px solid currentColor;
-  padding: 0.08em 0.14em 0 0.08em;
+  padding: 0.12em 0.18em 0.04em 0.1em;
 }
 
 /* Superscript / Subscript */
 .hd-eq-script {
   display: inline-flex;
-  align-items: baseline;
+  align-items: flex-start;
+  vertical-align: middle;
+}
+
+.hd-eq-base {
+  display: inline-flex;
+  align-items: center;
 }
 
 .hd-eq-sup {
-  font-size: 0.82em;
-  vertical-align: super;
-  margin-left: 0.04em;
-  top: -0.45em;
-  position: relative;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.78em;
+  margin-left: 0.03em;
+  transform: translateY(-0.42em);
 }
 
 .hd-eq-sub {
-  font-size: 0.82em;
-  vertical-align: sub;
-  margin-left: 0.04em;
-  bottom: -0.25em;
-  position: relative;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-end;
+  font-size: 0.78em;
+  margin-left: 0.03em;
+  transform: translateY(0.24em);
 }
 
 /* Integral & Sum */
@@ -659,6 +726,7 @@ input.hd-slot:focus {
   align-items: center;
   gap: 0.16em;
   vertical-align: middle;
+  margin: 0 0.06em;
 }
 
 .hd-eq-bigop-stack {
@@ -666,7 +734,11 @@ input.hd-slot:focus {
   flex-direction: column;
   align-items: center;
   line-height: 1;
-  gap: 0.06em;
+  gap: 0.08em;
+}
+
+.hd-eq-stack-rev {
+  flex-direction: column-reverse;
 }
 
 .hd-eq-bigop-sym {
@@ -680,6 +752,7 @@ input.hd-slot:focus {
   align-items: center;
   gap: 0.2em;
   vertical-align: middle;
+  margin: 0 0.06em;
 }
 
 .hd-eq-lim-stack {
@@ -687,7 +760,7 @@ input.hd-slot:focus {
   flex-direction: column;
   align-items: center;
   line-height: 1.05;
-  gap: 0.05em;
+  gap: 0.06em;
 }
 
 .hd-eq-lim-word {
@@ -697,27 +770,32 @@ input.hd-slot:focus {
 .hd-eq-lim-sub {
   display: inline-flex;
   align-items: center;
-  gap: 0.08em;
+  gap: 0.06em;
+  font-size: 0.8em;
 }
 
-/* Cases (System of equations) */
+/* System of equations (stretchable SVG brace) */
 .hd-eq-cases {
   display: inline-flex;
-  align-items: center;
-  gap: 0.18em;
+  align-items: stretch;
+  gap: 0.16em;
   vertical-align: middle;
+  margin: 0.12em 0.08em;
 }
 
-.hd-eq-brace {
-  font-size: 2.3em;
-  font-weight: 300;
-  line-height: 0.9;
+.hd-eq-brace-svg {
+  width: 0.65em;
+  min-height: 2.6em;
+  height: auto;
+  flex-shrink: 0;
+  align-self: stretch;
 }
 
 .hd-eq-cases-rows {
   display: inline-flex;
   flex-direction: column;
-  gap: 0.18em;
+  justify-content: center;
+  gap: 0.22em;
 }
 
 /* Vector & Angle accents */
@@ -726,6 +804,7 @@ input.hd-slot:focus {
   flex-direction: column;
   align-items: center;
   line-height: 1;
+  margin: 0 0.04em;
 }
 
 .hd-eq-accent-top {
@@ -769,6 +848,7 @@ input.hd-slot:focus {
   align-items: center;
   line-height: 1.05;
   vertical-align: middle;
+  gap: 0.04em;
 }
 
 .hd-eq-molar {
@@ -848,10 +928,21 @@ input.hd-slot:focus {
   .inline-formula-node,
   .hd-eq {
     background: transparent !important;
+    box-shadow: none !important;
     padding: 0 !important;
     color: #000000 !important;
   }
 
+  .hd-eq-interactive {
+    display: none !important;
+  }
+
+  .hd-eq-print-katex {
+    display: inline !important;
+    color: #000000 !important;
+  }
+
+  input.hd-seg,
   input.hd-slot,
   input.hd-slot:placeholder-shown {
     border: none !important;

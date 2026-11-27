@@ -45,7 +45,9 @@ import {
 } from '../../services/importService';
 import {
   applyRichAnnotationToSelection,
+  convertStaticMathChipToInteractive,
   editorHtmlToMarkdown,
+  extractMathTreesFromEditor,
   handleChecklistEnter,
   handleInlineEqKeyDown,
   indentListItem,
@@ -53,6 +55,7 @@ import {
   insertInteractiveEqAtSelection,
   insertSymbolAtSelection,
   markdownToEditorHtml,
+  refreshPrintKatexForEditor,
   sanitizePastedHtml,
   syncSlotInputSize,
   toggleHeadingBlock,
@@ -136,6 +139,8 @@ function wrapAnnotatedText(selectedText, kind, hex) {
 
 export default function DocumentViewer({
   document: doc,
+  customTags = [],
+  onOpenTagManager,
   initialEditMode = false,
   onBack,
   onUpdateDocument,
@@ -155,9 +160,9 @@ export default function DocumentViewer({
     Array.isArray(doc.stickyNotes) ? doc.stickyNotes : []
   );
   const [stickyNotesVisible, setStickyNotesVisible] = useState(true);
-  const [tagInputOpen, setTagInputOpen] = useState(false);
-  const [tagDraft, setTagDraft] = useState('');
+  const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const [justAutoSaved, setJustAutoSaved] = useState(false);
+  const tagDropdownRef = useRef(null);
 
   // Embedded PDF viewer state (for doc.docType === 'pdf-embed')
   const isEmbeddedPdf = doc.docType === 'pdf-embed';
@@ -197,9 +202,11 @@ export default function DocumentViewer({
   const autoSaveTimerRef = useRef(null);
   const stickySaveTimerRef = useRef(null);
   const savedRangeRef = useRef(null);
+  const lastFocusedMathSlotRef = useRef(null);
   const docRef = useRef(doc);
   const draftTitleRef = useRef(doc.title || '');
   const draftContentRef = useRef(doc.content || '');
+  const draftMathNodesRef = useRef(doc.mathNodes && typeof doc.mathNodes === 'object' ? doc.mathNodes : {});
   const stickyNotesRef = useRef(Array.isArray(doc.stickyNotes) ? doc.stickyNotes : []);
   const lastHydratedDocIdRef = useRef(null);
   const lastSyncedMarkdownRef = useRef(null);
@@ -229,11 +236,15 @@ export default function DocumentViewer({
     setSlashMenu(null);
     setFormulaToolboxOpen(false);
     setOpenMenu(null);
+    setTagDropdownOpen(false);
     savedRangeRef.current = null;
+    lastFocusedMathSlotRef.current = null;
     setDraftTitle(doc.title || '');
     draftTitleRef.current = doc.title || '';
     setDraftContent(doc.content || '');
     draftContentRef.current = doc.content || '';
+    draftMathNodesRef.current =
+      doc.mathNodes && typeof doc.mathNodes === 'object' ? doc.mathNodes : {};
     const nextNotes = Array.isArray(doc.stickyNotes) ? doc.stickyNotes : [];
     setStickyNotes(nextNotes);
     stickyNotesRef.current = nextNotes;
@@ -254,6 +265,7 @@ export default function DocumentViewer({
           ...activeDocSnapshot,
           title: draftTitleRef.current.trim() || t.untitledDoc,
           content: draftContentRef.current,
+          mathNodes: draftMathNodesRef.current,
           stickyNotes: stickyNotesRef.current,
           updatedAt: Date.now(),
         });
@@ -271,6 +283,9 @@ export default function DocumentViewer({
     if (doc.content !== undefined && doc.content !== lastSyncedMarkdownRef.current) {
       setDraftContent(doc.content || '');
       draftContentRef.current = doc.content || '';
+    }
+    if (doc.mathNodes && typeof doc.mathNodes === 'object') {
+      draftMathNodesRef.current = doc.mathNodes;
     }
     if (Array.isArray(doc.stickyNotes)) {
       const incomingJson = JSON.stringify(doc.stickyNotes);
@@ -294,7 +309,12 @@ export default function DocumentViewer({
     if (!isNewDoc) return;
 
     const incomingMd = docRef.current?.content || '';
-    el.innerHTML = markdownToEditorHtml(incomingMd);
+    el.innerHTML = markdownToEditorHtml(incomingMd, {
+      mathNodes: docRef.current?.mathNodes || null,
+      interactiveFormulas: isNoteView,
+    });
+    // Measure exact pixel widths for any hydrated recursive formula inputs once connected
+    el.querySelectorAll('input.hd-seg').forEach((inp) => syncSlotInputSize(inp));
     lastHydratedDocIdRef.current = doc.id;
     lastSyncedMarkdownRef.current = incomingMd;
     draftContentRef.current = incomingMd;
@@ -534,6 +554,7 @@ export default function DocumentViewer({
       const cleanTitle = (nextTitle ?? draftTitleRef.current).trim() || t.untitledDoc;
       const cleanContent = nextContent ?? draftContentRef.current;
       const cleanStickies = nextStickyNotes ?? stickyNotesRef.current;
+      const cleanMathNodes = draftMathNodesRef.current;
       lastSyncedMarkdownRef.current = cleanContent;
       draftContentRef.current = cleanContent;
       stickyNotesRef.current = cleanStickies;
@@ -541,6 +562,7 @@ export default function DocumentViewer({
         ...docRef.current,
         title: cleanTitle,
         content: cleanContent,
+        mathNodes: cleanMathNodes,
         stickyNotes: cleanStickies,
         updatedAt: Date.now(),
       });
@@ -566,6 +588,7 @@ export default function DocumentViewer({
   const getLatestMarkdownContent = useCallback(() => {
     if (!isSourceMode && !isEmbeddedPdf && editorRef.current) {
       const serialized = editorHtmlToMarkdown(editorRef.current);
+      draftMathNodesRef.current = extractMathTreesFromEditor(editorRef.current);
       lastSyncedMarkdownRef.current = serialized;
       draftContentRef.current = serialized;
       return serialized;
@@ -590,6 +613,7 @@ export default function DocumentViewer({
           ...docRef.current,
           title: draftTitleRef.current.trim() || t.untitledDoc,
           content: draftContentRef.current,
+          mathNodes: draftMathNodesRef.current,
           stickyNotes: stickyNotesRef.current,
           updatedAt: Date.now(),
         });
@@ -667,16 +691,26 @@ export default function DocumentViewer({
     [commitSaveImmediate, getLatestMarkdownContent]
   );
 
-  // ---------- Direct Inline Formula Insertion (Note View Only — Zero Raw LaTeX, Zero Re-Render) ----------
+  // ---------- Direct Recursive Inline Formula Insertion (Note View Only — Desmos Nesting, Zero Flicker) ----------
   const handleInsertFormulaTemplate = useCallback(
     (eqType) => {
       const el = editorRef.current;
       if (!el || isSourceMode) return;
-      const inserted = insertInteractiveEqAtSelection(el, savedRangeRef.current, eqType);
+      const inserted = insertInteractiveEqAtSelection(
+        el,
+        savedRangeRef.current,
+        eqType,
+        lastFocusedMathSlotRef.current
+      );
       if (!inserted) return;
+
+      if (document.activeElement?.matches?.('input.hd-seg')) {
+        lastFocusedMathSlotRef.current = document.activeElement;
+      }
 
       // Passively schedule debounced save — never replace DOM or steal slot focus
       const nextMd = editorHtmlToMarkdown(el);
+      draftMathNodesRef.current = extractMathTreesFromEditor(el);
       lastSyncedMarkdownRef.current = nextMd;
       draftContentRef.current = nextMd;
       scheduleAutoSave(draftTitleRef.current, nextMd);
@@ -688,15 +722,26 @@ export default function DocumentViewer({
     (latex, glyph = '') => {
       const el = editorRef.current;
       if (!el || isSourceMode) return;
-      const inserted = insertSymbolAtSelection(el, savedRangeRef.current, latex, glyph);
+      const inserted = insertSymbolAtSelection(
+        el,
+        savedRangeRef.current,
+        latex,
+        glyph,
+        lastFocusedMathSlotRef.current
+      );
       if (!inserted) return;
 
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer)) {
-        savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+      if (document.activeElement?.matches?.('input.hd-seg')) {
+        lastFocusedMathSlotRef.current = document.activeElement;
+      } else {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+          savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+        }
       }
 
       const nextMd = editorHtmlToMarkdown(el);
+      draftMathNodesRef.current = extractMathTreesFromEditor(el);
       lastSyncedMarkdownRef.current = nextMd;
       draftContentRef.current = nextMd;
       scheduleAutoSave(draftTitleRef.current, nextMd);
@@ -933,6 +978,7 @@ export default function DocumentViewer({
     setSlashMenu(null);
     setFormulaToolboxOpen(false);
     setOpenMenu(null);
+    setTagDropdownOpen(false);
     if (!isSourceMode) {
       // Visual WYSIWYG -> Markdown Source
       const latestMd = getLatestMarkdownContent();
@@ -958,14 +1004,18 @@ export default function DocumentViewer({
 
       const target = e?.target;
       const isFormulaSlot =
-        target && target.tagName === 'INPUT' && target.classList.contains('hd-slot');
+        target &&
+        target.tagName === 'INPUT' &&
+        (target.classList.contains('hd-seg') || target.classList.contains('hd-slot'));
 
       if (isFormulaSlot) {
-        // Update only this slot's own width & value attribute — zero outer DOM churn
+        // Update only this slot's own width, math tree JSON & print KaTeX — zero outer DOM churn
+        lastFocusedMathSlotRef.current = target;
         syncSlotInputSize(target);
       }
 
       const nextMd = editorHtmlToMarkdown(el);
+      draftMathNodesRef.current = extractMathTreesFromEditor(el);
       lastSyncedMarkdownRef.current = nextMd;
       draftContentRef.current = nextMd;
       scheduleAutoSave(draftTitleRef.current, nextMd);
@@ -1106,8 +1156,11 @@ export default function DocumentViewer({
     }
   };
 
-  // Sanitized rich paste inside WYSIWYG canvas (strips external styles/scripts)
+  // Sanitized rich paste inside WYSIWYG canvas (strips external styles/scripts; preserves native input paste inside math slots)
   const handleWysiwygPaste = (e) => {
+    if (e.target?.matches?.('input.hd-seg, input.hd-slot')) {
+      return;
+    }
     const html = e.clipboardData?.getData('text/html');
     const plain = e.clipboardData?.getData('text/plain') || '';
     if (!html && !plain) return;
@@ -1148,24 +1201,44 @@ export default function DocumentViewer({
     handleWysiwygInput();
   };
 
-  const handleAddTag = (e) => {
-    e.preventDefault();
-    const clean = tagDraft.trim();
-    const existing = doc.tags || [];
-    if (!clean) return;
+  // Close strict tag selector dropdown when clicking outside or pressing Escape
+  useEffect(() => {
+    if (!tagDropdownOpen) return;
+    const handleOutside = (e) => {
+      if (tagDropdownRef.current && !tagDropdownRef.current.contains(e.target)) {
+        setTagDropdownOpen(false);
+      }
+    };
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') setTagDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    window.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      window.removeEventListener('keydown', handleEsc);
+    };
+  }, [tagDropdownOpen]);
+
+  const handleToggleDocumentTag = (tag) => {
+    const existing = Array.isArray(doc.tags) ? doc.tags : [];
+    if (existing.includes(tag)) {
+      onUpdateDocument({
+        ...doc,
+        tags: existing.filter((tg) => tg !== tag),
+        updatedAt: Date.now(),
+      });
+      return;
+    }
     if (existing.length >= MAX_TAGS) {
       onNotify(t.maxTagsReached, 'warning');
       return;
     }
-    if (!existing.includes(clean)) {
-      onUpdateDocument({
-        ...doc,
-        tags: [...existing, clean].slice(0, MAX_TAGS),
-        updatedAt: Date.now(),
-      });
-    }
-    setTagDraft('');
-    setTagInputOpen(false);
+    onUpdateDocument({
+      ...doc,
+      tags: [...existing, tag].slice(0, MAX_TAGS),
+      updatedAt: Date.now(),
+    });
   };
 
   const handleRemoveTag = (tagToRemove) => {
@@ -1224,12 +1297,18 @@ export default function DocumentViewer({
     setSlashMenu(null);
     setOpenMenu(null);
     window.getSelection()?.removeAllRanges();
+    if (!isSourceMode && !isEmbeddedPdf && editorRef.current) {
+      refreshPrintKatexForEditor(editorRef.current);
+    }
     flushPendingSave();
     if (isSourceMode) {
       commitSaveImmediate(draftTitleRef.current, draftContentRef.current, false);
       lastHydratedDocIdRef.current = null;
       setIsSourceMode(false);
-      setTimeout(() => window.print(), 140);
+      setTimeout(() => {
+        if (editorRef.current) refreshPrintKatexForEditor(editorRef.current);
+        window.print();
+      }, 140);
     } else {
       window.print();
     }
@@ -2013,46 +2092,93 @@ export default function DocumentViewer({
                   </span>
                 ))}
 
-                {(doc.tags || []).length < MAX_TAGS && !tagInputOpen && (
+                <div ref={tagDropdownRef} className="relative inline-flex items-center no-print">
                   <button
                     type="button"
-                    onClick={() => setTagInputOpen(true)}
-                    className="no-print inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border border-dashed border-[#D6D6D2] dark:border-[#3A3A3A] hover:border-indigo-500 text-[#6B6A66] dark:text-[#9B9A97] hover:text-indigo-500 text-[12px] transition-colors duration-150 cursor-pointer"
+                    onClick={() => setTagDropdownOpen((v) => !v)}
+                    aria-expanded={tagDropdownOpen}
+                    aria-haspopup="listbox"
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[12px] transition-colors duration-150 cursor-pointer ${
+                      tagDropdownOpen
+                        ? 'border-[#2563EB]/45 bg-[#EFF6FF] text-[#2563EB] dark:border-[#60A5FA]/45 dark:bg-[#2563EB]/[0.16] dark:text-[#60A5FA]'
+                        : 'border-dashed border-[#D6D6D2] dark:border-[#3A3A3A] hover:border-[#2563EB] text-[#6B6A66] dark:text-[#9B9A97] hover:text-[#2563EB] dark:hover:text-[#60A5FA]'
+                    }`}
                   >
                     <Plus className="w-3 h-3" />
                     <span>{t.editTags}</span>
                   </button>
-                )}
 
-                {tagInputOpen && (
-                  <form onSubmit={handleAddTag} className="no-print inline-flex items-center gap-1">
-                    <input
-                      type="text"
-                      autoFocus
-                      value={tagDraft}
-                      onChange={(e) => setTagDraft(e.target.value)}
-                      placeholder={t.addTagPlaceholder}
-                      className="w-32 px-2 py-0.5 rounded-lg border border-indigo-400 bg-[#FFFFFF] dark:bg-[#202020] text-[12px] focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      className="p-1 rounded-lg bg-indigo-600 text-white cursor-pointer"
-                      title={t.save}
+                  {tagDropdownOpen && (
+                    <div
+                      role="listbox"
+                      aria-label={t.selectExistingTagsHint}
+                      className="hd-modal-in absolute left-0 top-full mt-1.5 z-40 w-56 rounded-xl border border-[#E8E8E5] dark:border-[#343434] bg-[#FFFFFF] dark:bg-[#242424] shadow-xl overflow-hidden"
                     >
-                      <Check className="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTagInputOpen(false);
-                        setTagDraft('');
-                      }}
-                      className="p-1 rounded-lg text-[#6B6A66] cursor-pointer"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </form>
-                )}
+                      <div className="px-3 py-2 border-b border-[#E8E8E5] dark:border-[#323232] flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-[#6B6A66] dark:text-[#9B9A97]">
+                        <span>{t.selectExistingTagsHint}</span>
+                        <span className="tabular-nums">
+                          {(doc.tags || []).length}/{MAX_TAGS}
+                        </span>
+                      </div>
+
+                      <div className="max-h-48 overflow-y-auto p-1.5 space-y-0.5">
+                        {customTags.length === 0 ? (
+                          <p className="px-2 py-3 text-center text-[12px] text-[#6B6A66] dark:text-[#9B9A97]">
+                            {t.noTagsCreatedYet}
+                          </p>
+                        ) : (
+                          customTags.map((tag) => {
+                            const isChecked = (doc.tags || []).includes(tag);
+                            const atLimit = !isChecked && (doc.tags || []).length >= MAX_TAGS;
+                            return (
+                              <button
+                                key={tag}
+                                type="button"
+                                role="option"
+                                aria-selected={isChecked}
+                                onClick={() => handleToggleDocumentTag(tag)}
+                                className={`w-full px-2.5 py-1.5 rounded-lg text-left text-[12.5px] flex items-center gap-2 transition-colors cursor-pointer ${
+                                  isChecked
+                                    ? 'bg-[#EFF6FF] dark:bg-[#2563EB]/[0.16] text-[#2563EB] dark:text-[#60A5FA] font-medium'
+                                    : atLimit
+                                      ? 'text-[#9B9A97] dark:text-[#6B6A66] hover:bg-[#F4F4F5] dark:hover:bg-[#2C2C2C]'
+                                      : 'text-[#262624] dark:text-[#ECECEA] hover:bg-[#F4F4F5] dark:hover:bg-[#2E2E2E]'
+                                }`}
+                              >
+                                <span
+                                  className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                                    isChecked
+                                      ? 'border-[#2563EB] bg-[#2563EB] text-white'
+                                      : 'border-[#D4D4D8] dark:border-[#4A4A4A]'
+                                  }`}
+                                >
+                                  {isChecked && <Check className="w-2.5 h-2.5" />}
+                                </span>
+                                <span className="truncate flex-1">{tag}</span>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+
+                      {onOpenTagManager && (
+                        <div className="p-1.5 border-t border-[#E8E8E5] dark:border-[#323232] bg-[#FBFBFA] dark:bg-[#202020]">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTagDropdownOpen(false);
+                              onOpenTagManager();
+                            }}
+                            className="w-full px-2.5 py-1.5 rounded-lg text-[12px] font-medium text-[#52525B] dark:text-[#A1A1AA] hover:text-[#18181B] dark:hover:text-white hover:bg-[#EFEFED] dark:hover:bg-[#2E2E2E] inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                          >
+                            <Tag className="w-3 h-3" />
+                            <span>{t.createTagBtn}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </header>
@@ -2098,6 +2224,40 @@ export default function DocumentViewer({
               onInput={handleWysiwygInput}
               onChange={handleWysiwygCheckboxChange}
               onKeyDown={handleWysiwygKeyDown}
+              onFocus={(e) => {
+                if (e.target?.matches?.('input.hd-seg')) {
+                  lastFocusedMathSlotRef.current = e.target;
+                } else {
+                  lastFocusedMathSlotRef.current = null;
+                }
+              }}
+              onClick={(e) => {
+                const target = e.target;
+                if (target?.matches?.('input.hd-seg')) {
+                  lastFocusedMathSlotRef.current = target;
+                  return;
+                }
+                if (isNoteView) {
+                  const staticChip = target?.closest?.('.hd-math-inline, .hd-math-block');
+                  if (staticChip && !staticChip.classList.contains('hd-eq') && editorRef.current) {
+                    const converted = convertStaticMathChipToInteractive(
+                      editorRef.current,
+                      staticChip,
+                      draftMathNodesRef.current
+                    );
+                    if (converted) {
+                      if (document.activeElement?.matches?.('input.hd-seg')) {
+                        lastFocusedMathSlotRef.current = document.activeElement;
+                      }
+                      handleWysiwygInput();
+                    }
+                    return;
+                  }
+                }
+                if (!target?.closest?.('.hd-eq')) {
+                  lastFocusedMathSlotRef.current = null;
+                }
+              }}
               onBlur={(e) => {
                 // Only flush when focus truly leaves the entire editor (not when tabbing between inline formula slots)
                 if (e.relatedTarget && editorRef.current?.contains(e.relatedTarget)) {
